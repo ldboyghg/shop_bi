@@ -1,0 +1,3654 @@
+#
+# shiny module
+# yuanf@800pharm.com / 2016 
+#
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 月度目标设定
+kpiSettingUI <- function(id) {
+    ns <- NS(id)
+    month_list <- stringr::str_sub(seq(as.Date("2016-01-01"), as.Date("2017-01-01"), by="1 month"), 1, 7)
+    kpi <- dbGetQuery0('bbf_shiny', paste0("select * from bbf_kpi where dt='", month_list[month(Sys.Date())], "'"))
+    tagList(
+        h2('新增月度目标'),
+        selectInput(ns("dt"), "月份", choices = month_list, selected = month_list[month(Sys.Date())]),
+        numericInput(ns("kpi1"), '发展部', value = kpi$kpi[kpi$isback==1], step = 10000),
+        numericInput(ns("kpi5"), '增值部', value = kpi$kpi[kpi$isback==5], step = 10000),
+        actionButton(ns('save'),label='保 存', icon=icon('sign-in'))
+    )
+}
+kpiSetting <- function(input, output, session) {
+    observeEvent(input$save, {
+        req(input$kpi1, input$kpi5, input$dt)
+        kpi1 <- as.character(isolate(input$kpi1))
+        kpi5 <- as.character(isolate(input$kpi5))
+        dt <- as.character(isolate(input$dt))
+        dbGetQuery0('bbf_shiny', paste0("DELETE FROM bbf_kpi WHERE dt='", dt, "'"))
+        dbGetQuery0('bbf_shiny', paste0("INSERT INTO bbf_kpi (kpi, dt, isback) VALUES (", kpi1, ",'", dt, "',1)"))
+        dbGetQuery0('bbf_shiny', paste0("INSERT INTO bbf_kpi (kpi, dt, isback) VALUES (", kpi5, ",'", dt, "',5)"))
+        info('月度目标更新成功!')
+        reset(input$kpi1)
+        reset(input$kpi5)
+    })
+}
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 小能及呼叫中心数据上传
+csvUploadUI <- function(id) {
+    ns <- NS(id)
+    
+    tagList(
+        h2('上传小能以及呼叫中心csv文件'),
+        selectInput(ns('type'), '类型', choices = c('请选择', '小能', '呼叫中心'), selected = '请选择'),
+        fileInput(ns("csvfile"), 'CSV文件', accept = c('text/csv', 'text/comma-separated-values','text/tab-separated-values','text/plain', '.csv','.txt')),
+        actionButton(ns('upload'), '保 存', icon = icon('upload'))
+    )
+}
+csvUpload <- function(input, output, session) {
+    type <- reactive({
+        req(input$type)
+        input$type
+    })
+    csvfile <- reactive({
+        req(input$csvfile)
+        enable('upload')
+        input$csvfile
+    })
+    # 监听类型选择下拉框动作
+    observe({
+        # 选择了类型才显示选择文件按钮以及将上传按钮改为可用状态
+        if(type() == '请选择') {
+            disable('csvfile')
+            disable('upload')
+        } else {
+            enable('csvfile')
+        }
+        logjs(csvfile()$datapath)
+        logjs(csvfile()$name)
+    })
+    
+    # 监听上传按钮点击动作
+    observeEvent(input$upload, {
+        #req(input$csvfile)
+        # 如果未上传文件就点击了上传按钮, 直接浏览器弹窗提示
+        if(is.null(csvfile())){
+            info('还没选择要上传的CSV文件')
+            return(NULL)
+        }
+        # 读取上传的文件
+        # 切记dbWriteTable是不支持dpyr的tbl_df格式 需要转换为data.frame
+        if(type() == '小能') {
+            tmp <- read_csv(csvfile()$datapath, col_types = list(col_character(),col_character(),col_character(),col_character(),col_character(),col_character(),col_character(),col_character(),col_character(),col_character(),col_character(),col_character(),col_character(),col_character(),col_character(),col_character(),col_character(),col_character(),col_character(),col_character(),col_character(),col_character(),col_character(),col_character(),col_character(),col_character(),col_character(),col_character(),col_character(),col_character(),col_character(),col_character(),col_character(),col_character(),col_character(),col_character(),col_character(),col_character(),col_character(),col_character(), col_character(), col_character(), col_character(), col_character()))
+            # delete record whith dt=tmp$dt
+            dbGetQuery0('bbf_shiny', paste0("DELETE FROM bbf_xn_daily WHERE dt='",tmp$dt[1],"'"))
+            dbWriteTable0(db = 'bbf_shiny', tbl = 'bbf_xn_daily', df = as.data.frame(tmp))
+        } else {
+            tmp <- read_csv(csvfile()$datapath, col_types = list(col_character(),col_character(),col_character(),col_character(),col_character(),col_character(),col_character(),col_character(),col_character(),col_character(),col_character(),col_character(),col_character(),col_character(),col_character(),col_character(),col_character(),col_character(),col_character(),col_character()))
+            # delete record whith dt=tmp$dt
+            #info(paste0("DELETE FROM bbf_cc_call_report_dept WHERE dt='",tmp$dt[1],"'"))
+            dbGetQuery0('bbf_shiny', paste0("DELETE FROM bbf_cc_call_report_dept WHERE dt='",tmp$dt[1],"'"))
+            dbWriteTable0(db = 'bbf_shiny', tbl = 'bbf_cc_call_report_dept', df = as.data.frame(tmp))
+        }
+        # 重置类型选择以及文件选择菜单
+        # 浏览器弹窗提示更新成功
+        reset('type')
+        reset('csvfile')
+        info('数据更新成功.')
+    })
+}
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 仪表盘
+dashboardUI <- function(id) {
+    ns <- NS(id)
+    
+    tagList(
+        fluidRow(
+            valueBoxOutput(ns('box1_1'), width = 3),
+            valueBoxOutput(ns('box1_2'), width = 3),
+            valueBoxOutput(ns('box1_3'), width = 2),
+            valueBoxOutput(ns('box1_4'), width = 2),
+            valueBoxOutput(ns('box1_5'), width = 2)
+        ),
+        fluidRow(
+            valueBoxOutput(ns('box5_1'), width = 3),
+            valueBoxOutput(ns('box5_2'), width = 3),
+            valueBoxOutput(ns('box5_3'), width = 2),
+            valueBoxOutput(ns('box5_4'), width = 2),
+            valueBoxOutput(ns('box5_5'), width = 2)
+        ),
+        fluidRow(
+            box(title = '日销售额趋势',
+                status = 'primary',
+                dygraphOutput(ns('trend1'))
+            ),
+            box(title = '客服销售占比',
+                status = 'primary',
+                dygraphOutput(ns('trend2'))
+            )
+        ),
+        fluidRow(
+            box(title = '日活跃会员数',
+                status = 'primary',
+                dygraphOutput(ns('trend3'))
+            ),
+            box(title = '月活跃会员数',
+                status = 'primary',
+                dygraphOutput(ns('trend4'))
+            )
+        )
+    )
+}
+dashboard <- function(input, output, session) {
+    kpi1 <- reactive({
+        as.integer(dbGetQuery0('bbf_shiny', paste0("SELECT kpi FROM bbf_kpi WHERE isback=1 and dt='", substr(Sys.Date(), 1, 7), "'")))
+    })
+    sale1 <- reactive({
+        # 电话客服（发展isbck=1）
+        if(file.exists('./data/sale1.rds') & as.Date(file.mtime('./data/sale1.rds'))==Sys.Date()) {
+            tmp <- read_rds('./data/sale1.rds')
+        } else {
+            tmp <- as.integer(dbGetQuery0('ecommerce', paste0("SELECT sum(actual_pay) as pay FROM tb_porder WHERE adminaccount in (select name_py from bbf_shiny.bbf_stuff where dept='客户发展部') AND substring(post_date_str,1,7)='", substr(Sys.Date(), 1, 7),"' AND (pay_status=1 or (payname='货到付款' and handle_status not in (5,7,97)))")))
+            tmp1 <- as.integer(dbGetQuery0('ecommerce', paste0("SELECT sum(amount) as pay FROM tb_porder_drawback a join tb_porder b on a.oid=b.oid WHERE b.adminaccount in (select name_py from bbf_shiny.bbf_stuff where dept='客户发展部') AND substring(b.post_date_str,1,7)='", substr(Sys.Date(), 1, 7),"' AND payname is not null and handle_status not in (5,7,97) and a.dualstatus=2")))
+            tmp <- ifelse(is.na(tmp), 0, tmp)
+            tmp1 <- ifelse(is.na(tmp1), 0, tmp1)
+            tmp <- tmp - tmp1
+            saveRDS(tmp, './data/sale1.rds')
+        }
+        tmp
+    })
+    output$box1_1 = renderValueBox({
+        valueBox(kpi1(), paste0(month(Sys.Date()),'月发展部目标'), color='light-blue', icon = icon('flag'), width = 4)
+    })
+    output$box1_2 = renderValueBox({
+        valueBox(sale1(), paste0('截至',Sys.Date()-1,'业绩'), color='light-blue', icon = icon('dollar'), width = 4)
+    })
+    output$box1_3 = renderValueBox({
+        valueBox(ifelse(kpi1()-sale1()<0, '业绩完成', kpi1()-sale1()), '冲刺金额', color='light-blue', icon = icon('dollar'), width = 4)
+    })
+    output$box1_4 = renderValueBox({
+        valueBox(paste0(round(sale1()/kpi1()*100, 2), '%'), '完成率', color='light-blue', icon = icon('calendar'), width = 4)
+    })
+    output$box1_5 = renderValueBox({
+        valueBox(paste0(round((day(Sys.Date()) - 1)/day(as.Date(zoo::as.yearqtr(substr(Sys.Date(),1,7),'%Y-%m'), frac=1))*100, 2), '%'), '时间进度', color='light-blue', icon = icon('hourglass-half'), width = 4)
+    })
+    # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    kpi5 <- reactive({
+        as.integer(dbGetQuery0('bbf_shiny', paste0("SELECT kpi FROM bbf_kpi WHERE isback=5 and dt='", substr(Sys.Date(), 1, 7), "'")))
+    })
+    sale5 <- reactive({
+        # 电话客服（增值isbck=5）
+        #as.integer(dbGetQuery0('ecommerce', paste0("SELECT sum(actual_pay) as pay FROM tb_porder WHERE isback=5 AND substring(post_date_str,1,7)='", substr(Sys.Date(), 1, 7),"' AND (pay_status=1 or (payname='货到付款' and handle_status not in (5,7,97)))")))
+        if(file.exists('./data/sale5.rds') & as.Date(file.mtime('./data/sale5.rds'))==Sys.Date()) {
+            tmp <- read_rds('./data/sale5.rds')
+        } else {
+            tmp <- as.integer(dbGetQuery0('ecommerce', paste0("SELECT sum(actual_pay) as pay FROM tb_porder WHERE adminaccount in (select name_py from bbf_shiny.bbf_stuff where dept='客户增值部') AND substring(post_date_str,1,7)='", substr(Sys.Date(), 1, 7),"' AND (pay_status=1 or (payname='货到付款' and handle_status not in (5,7,97)))")))
+            tmp1 <- as.integer(dbGetQuery0('ecommerce', paste0("SELECT sum(amount) as pay FROM tb_porder_drawback a join tb_porder b on a.oid=b.oid WHERE b.adminaccount in (select name_py from bbf_shiny.bbf_stuff where dept='客户增值部') AND substring(b.post_date_str,1,7)='", substr(Sys.Date(), 1, 7),"' AND payname is not null and handle_status not in (5,7,97) and a.dualstatus=2")))
+            tmp <- ifelse(is.na(tmp), 0, tmp)
+            tmp1 <- ifelse(is.na(tmp1), 0, tmp1)
+            tmp <- tmp - tmp1
+            saveRDS(tmp, './data/sale5.rds')
+        }
+        tmp
+    })
+    output$box5_1 = renderValueBox({
+        valueBox(kpi5(), paste0(month(Sys.Date()),'月增值部目标'), color='light-blue', icon = icon('flag'), width = 4)
+    })
+    output$box5_2 = renderValueBox({
+        valueBox(sale5(), paste0('截至',Sys.Date()-1,'业绩'), color='light-blue', icon = icon('dollar'), width = 4)
+    })
+    output$box5_3 = renderValueBox({
+        valueBox(ifelse(kpi5()-sale5()<0, '业绩完成', kpi5()-sale5()), '冲刺金额', color='light-blue', icon = icon('dollar'), width = 4)
+    })
+    output$box5_4 = renderValueBox({
+        valueBox(paste0(round(sale5()/kpi5()*100, 2), '%'), '完成率', color='light-blue', icon = icon('calendar'), width = 4)
+    })
+    output$box5_5 = renderValueBox({
+        valueBox(paste0(round((day(Sys.Date()) - 1)/day(as.Date(zoo::as.yearqtr(substr(Sys.Date(),1,7),'%Y-%m'), frac=1))*100, 2), '%'), '时间进度', color='light-blue', icon = icon('hourglass-half'), width = 4)
+    })
+    # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    sale_trend <- reactive({
+        if(as.Date(file.mtime('./data/sale_trend.rds'))==Sys.Date()) {
+            tmp <- read_rds('./data/sale_trend.rds')
+        } else {
+            tmp <- dbGetQuery0('ecommerce', paste0("select substring(post_date_str, 1, 10) as dt, sum(actual_pay) as pay, sum(case when isback=1 or isback=5 then actual_pay else 0 end) as pay_crm from tb_porder where (pay_status=1 or (payname='货到付款' and handle_status not in (5,7,97))) and post_date_str>='2015-01-01' and post_date_str<'",Sys.Date(),"' group by dt")) %>% 
+                mutate(
+                    dt = as.Date(dt),
+                    pay = pay/10000,
+                    pay_crm = pay_crm/10000,
+                    pct = pay_crm/pay*100
+                )
+            saveRDS(tmp, './data/sale_trend.rds')
+        }
+        tmp
+    })
+    
+    member_trend <- reactive({
+        if(as.Date(file.mtime('./data/member_trend.rds'))==Sys.Date()) {
+            tmp <- read_rds('./data/member_trend.rds')
+        } else {
+            tmp <- dbGetQuery0('ecommerce', paste0("select substring(post_date_str, 1, 10) as dt, count(distinct mid) as cnt from tb_porder where (pay_status=1 or (payname='货到付款' and handle_status not in (5,7,97))) and post_date_str>='2015-01-01' and post_date_str<'",Sys.Date(),"' group by dt")) %>% mutate(dt=as.Date(dt))
+            saveRDS(tmp, './data/member_trend.rds')
+        }
+        tmp
+    })
+    output$trend1 <- renderDygraph({
+        x <- sale_trend() %>% select(`日期`=dt, `平台`=pay, `客服`=pay_crm)
+        x <- as.xts(x[, 2:3], x[, 1])
+        dygraph(x, group='dashboard') %>%
+            dyAxis("y", label = "销售额/万") %>% 
+            dyEvent("2015-11-11", "11.11", labelLoc = "bottom") %>% 
+            dyEvent("2016-03-08", "3.8", labelLoc = "bottom")
+    })
+    output$trend2 <- renderDygraph({
+        x <- sale_trend() %>% select(`日期`=dt, `占比`=pct)
+        x <- as.xts(x[, 2], x[, 1])
+        colnames(x) <- '客服销售占比'
+        dygraph(x, group='dashboard') %>% dyAxis("y", label = "客服销售占比%") %>% 
+            dyEvent("2015-11-11", "11.11", labelLoc = "bottom") %>% 
+            dyEvent("2016-03-08", "3.8", labelLoc = "bottom")
+    })
+    output$trend3 <- renderDygraph({
+        x <- member_trend()
+        x <- as.xts(x[, 2], x[, 1])
+        colnames(x) <- '会员数'
+        dygraph(x, group='dashboard') %>% dyAxis("y", label = "会员数") %>% 
+            dyEvent("2015-11-11", "11.11", labelLoc = "bottom") %>% 
+            dyEvent("2016-03-08", "3.8", labelLoc = "bottom")
+    })
+    output$trend4 <- renderDygraph({
+        x <- member_trend() %>%
+            mutate(dt = substr(dt, 1, 7)) %>%
+            group_by(dt) %>%
+            summarise(cnt=sum(cnt)) %>% 
+            mutate(dt = as.Date(paste0(dt, '-01'))) %>% 
+            as.data.frame()
+        x <- as.xts(x[, 2], x[, 1], frequency =12)
+        colnames(x) <- '会员数'
+        dygraph(x, group='dashboard') %>% dyAxis("y", label = "会员数")
+    })
+}
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 部门绩效
+kpiReportUI <- function(id) {
+    ns <- NS(id)
+    
+    tagList(
+        fluidRow(class='',
+                 column(2, selectInput(ns('dt'), '月份', choices = substr(as.character(seq(ymd('2016-02-01'), by='month', length.out = 12)-days(1)), 1, 7), selected = substr(Sys.Date(),1,7))),
+                 column(2, downloadButton(ns('btn_export'), '导出', class = 'btn_nowrap'))
+        ), br(),
+        fluidRow(
+            column(12, DT::dataTableOutput(ns('tbl')))
+        )
+    )
+}
+kpiReport <- function(input, output, session) {
+    dt <- reactive({
+        req(input$dt)
+        input$dt
+    })
+    
+    df <- reactive({
+        stuff <- dbReadTable0('bbf_shiny', 'bbf_stuff')
+        last_ym = substr(as.Date(paste0(dt(),'-01'))-2,1,7)
+        sql <- paste0("select adminaccount , sum(ACTUAL_PAY) pay, count(distinct oid) as cnt from (
+            
+            -- 在线支付  当月下单， 当月支付
+            select  adminaccount , ACTUAL_PAY,oid from tb_porder tbp 
+            where 1 = 1 
+            AND PAY_STATUS = 1  
+            and substring(post_date_str, 1, 7) = '",dt(),"'  -- 下单时间
+            and substring(payDates, 1, 7) = '",dt(),"'   -- 支付时间
+            and length(adminaccount ) > 0 
+            -- AND HANDLE_STATUS not in (5 , 7)  
+            
+            UNION all
+            
+            -- 货到付款  当月下单，交易未取消关闭
+            select  adminaccount , ACTUAL_PAY,oid from tb_porder tbp 
+            where 1 = 1 
+            AND   PAY_TYPE = 10002	 
+            and substring(post_date_str, 1, 7) = '",dt(),"'  -- 下单时间
+            and length(adminaccount ) > 0 
+            -- AND HANDLE_STATUS not in (5, 7)
+            
+            union all
+            
+            -- 3月下单  4月10号前  在线支付
+            select adminaccount , ACTUAL_PAY,oid from tb_porder tbp 
+            where 1 = 1  
+            and PAY_STATUS = 1  
+            and substring(post_date_str, 1, 7) = '",last_ym,"'
+            and substring(payDates, 1, 7) = '",dt(),"'
+            and length(adminaccount ) > 0 
+            -- AND HANDLE_STATUS not in (5, 7)  
+        ) x
+        where 1 = 1 
+        group by adminaccount 
+        order by adminaccount")
+        df1 <- dbGetQuery0('ecommerce', sql)
+
+        sql <- paste0("select b.adminaccount, sum(a.amount) as amount,count(distinct a.oid) as tk_cnt from tb_porder_drawback a join tb_porder b on a.oid=b.oid where substring(a.dualdates,1,7)='",dt(),"' and a.dualstatus=2 group by b.adminaccount,a.dualstatus")
+        df2 <- dbGetQuery0('ecommerce', sql)
+
+        df1 %>%
+            left_join(df2, by='adminaccount') %>%
+            left_join(stuff, by=c('adminaccount'='name_py')) %>%
+            select(`下单人`=adminaccount, `工号`=stuff_id, `下单人1`=name, `部门`=dept, `小组`=team, `成交金额`=pay, `成交单数`=cnt, `退款金额`=amount, `退款单数`=tk_cnt)
+    })
+    
+    output$btn_export <- downloadHandler(paste('bbf-data-jixiao-',Sys.Date(),'.csv',sep=''), content = function(file) {
+        if(TRUE){
+            write.csv(df(), file, fileEncoding='gbk',row.names=FALSE)
+        } else {
+            write.csv('无数据下载权限', file, fileEncoding='gbk', row.names = FALSE, col.names = FALSE)
+        }
+        
+    })
+    
+    output$tbl <- DT::renderDataTable({
+        datatable(
+            df(),
+            escape = FALSE,
+            rownames = FALSE,
+            selection = 'none',
+            extensions = 'Scroller',
+            options = list(
+                autoWidth = TRUE,
+                searching = FALSE,
+                deferRender = TRUE,
+                scrollY=200,
+                scrollCollapse = TRUE,
+                order = list(list(5, 'desc')),
+                language = list(url = '//cdn.datatables.net/plug-ins/1.10.7/i18n/Chinese.json'),
+                pageLength = 200,
+                lengthChange = FALSE,
+                initComplete = JS("function(settings, json) {$('.dataTables_scrollBody').attr('style', 'overflow: auto; width: 100%;height: '+($(window).height()-210)+'px !important');}"),
+                fnDrawCallback = JS('function (oSettings, json) {oSettings.oScroll.sY = $(window).height()-210;$.each(oSettings.aoColumns, function(index, value){value.asSorting = ["desc", "asc"]})}')
+            )
+        ) %>% formatRound(c('成交金额', '退款金额'), 2)
+    })
+    
+}
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 中心日报
+centreDailyReportUI <- function(id) {
+    ns <- NS(id)
+    
+    tagList(
+        fluidRow(class='toolbar',
+            column(2, selectInput(ns('dt'), NULL, choices = substr(as.character(seq(ymd('2016-02-01'), by='month', length.out = 12)-days(1)), 1, 7), selected = substr(Sys.Date(),1,7))),
+            column(2, selectInput(ns('dept'), NULL, choices = c('会员中心', '客户发展部', '客户增值部')))
+        ),
+        #br(),br(),
+        fluidRow(
+            DT::dataTableOutput(ns('centre_daily_report'))
+        )
+    )
+}
+centreDailyReport <- function(input, output, session) {
+    dt <- reactive({
+        req(input$dt)
+        input$dt
+    })
+    dept <- reactive({
+        req(input$dept)
+        input$dept
+    })
+    df <- reactive({
+        stuff <- dbGetQuery0('bbf_shiny', 'select * from bbf_stuff')
+        cc <- dbGetQuery0('bbf_shiny', 'SELECT * FROM bbf_cc_call_report_dept')
+        xn <- dbGetQuery0('bbf_shiny', 'SELECT * FROM bbf_xn_daily')
+        # 未付款payname为NULL（包括发展和增值客服下单+自主下单）
+        # 货到付款的pay_status要做一个转换才方便处理
+        # 货到付款可立即取消订单，因此handle_status可能为5
+        isback_ <- c(1, 5)
+        dept_ <- c('客户发展部', '客户增值部', '健康管理部', '客户服务部')
+        if (dept() == '客户发展部') {
+            isback_ = 1
+            dept_ <- c('客户发展部')
+        } else if (dept() == '客户增值部') {
+            isback_ = 5
+            dept_ <- c('客户增值部')
+        }
+        # 付款状态pay_stauts跟处理状态handle_status要同时考虑，付款也会有退款或者订单取消行为，货到付款可立即取消
+        sql <- paste0("SELECT orderno, substring(post_date_str, 1, 10) as dt, actual_pay as pay, isback, adminaccount, payname, pay_status,handle_status FROM tb_porder WHERE substring(post_date_str,1,7)='", dt(), "' and substring(post_date_str,1,10)<'", Sys.Date(), "'")
+        dd <- dbGetQuery0('ecommerce', sql) %>%
+            # 这个handle_status排除了支付订单中的退款和取消交易（货到付款可立即取消）
+            # 如果需要增加下单金额，这个filter需要放到后面dd1和dd2去过滤
+            filter(handle_status %in% c(0, 1, 4, 6, 99)) %>% 
+            mutate(
+                dt = as.character(dt),
+                payname=ifelse(is.na(payname), '未付款', ifelse(payname %in% c('货到付款'), '货到付款', '在线支付')),  # NA跟任意变量进行比较都是NA, 故不能直接`==`而用%in%
+                pay_status = ifelse(payname=='货到付款', 1, pay_status)   # 到付pay_status=0，转换为1代表默认会付款，方便后面筛选
+            ) %>% 
+            filter(payname != '未付款') %>% 
+            # 未审核发布导致isback更新错误，需要使用名字来统计
+            mutate(
+                isback = ifelse(adminaccount %in% stuff$name_py[stuff$dept=='客户发展部'], 1, ifelse(adminaccount %in% stuff$name_py[stuff$dept=='客户增值部'], 5, isback))
+            )
+        
+        # 平台：全部订单(支付：在线＋到付)
+        dd1 <- dd %>% 
+            mutate(
+                payname = ifelse(payname=='货到付款', '平台_货到付款', '平台_在线支付')
+            ) %>% 
+            group_by(dt, payname) %>%
+            summarise(
+                pay=sum(pay),
+                cnt=n_distinct(orderno)
+            ) %>% 
+            rename(金额=pay, 单数=cnt) %>% 
+            gather(variable, value, -(dt:payname)) %>%
+            unite(temp, payname, variable) %>%
+            spread(temp, value) %>% 
+            mutate(
+                `平台_支付总金额` = sum(`平台_在线支付_金额`, `平台_货到付款_金额`, na.rm=TRUE),
+                `平台_支付总单数` = sum(`平台_在线支付_单数`, `平台_货到付款_单数`, na.rm=TRUE)
+            ) %>%
+            select(`平台_在线支付_单数`, `平台_货到付款_单数`, `平台_支付总单数`, `平台_在线支付_金额`, `平台_货到付款_金额`, `平台_支付总金额`)
+
+        # 客服：isback==1/5 订单（在线+到付）
+        # 在线＋到付
+        dd2 <- dd %>% 
+            filter(isback %in% isback_) %>% 
+            mutate(
+                payname = ifelse(payname=='货到付款', '客服_货到付款', '客服_在线支付')
+            ) %>% 
+            group_by(dt, payname) %>%
+            summarise(
+                pay=sum(pay),
+                cnt=n_distinct(orderno)
+            ) %>% 
+            rename(金额=pay, 单数=cnt) %>% 
+            gather(variable, value, -(dt:payname)) %>%
+            unite(temp, payname, variable) %>%
+            spread(temp, value) %>% 
+            mutate(
+                `客服_支付总金额` = sum(`客服_在线支付_金额`, `客服_货到付款_金额`, na.rm=TRUE),
+                `客服_支付总单数` = sum(`客服_在线支付_单数`, `客服_货到付款_单数`, na.rm=TRUE)
+            ) %>% 
+            select(`客服_在线支付_单数`, `客服_货到付款_单数`, `客服_支付总单数`, `客服_在线支付_金额`, `客服_货到付款_金额`, `客服_支付总金额`)
+        # cc
+        # 通过dept筛选部门
+        cc <- cc %>%
+            rename(stuff_id=`工号`) %>%
+            left_join(stuff, by='stuff_id') %>%
+            rename(`工号`=stuff_id) %>% 
+            filter(dept %in% dept_)
+        cc <- cc %>%
+            mutate(
+                dt = as.character(dt),
+                # 分钟
+                `呼入通话平均时长` = hour(hms(`呼入通话平均时长`))*60+minute(hms(`呼入通话平均时长`))+second(hms(`呼入通话平均时长`))/60,
+                # 小时
+                `呼入通话总时长` = hour(hms(`呼入通话总时长`))+minute(hms(`呼入通话总时长`))/60+second(hms(`呼入通话总时长`))/3600,
+                `呼入总数` = as.numeric(`呼入总数`),
+                `呼入接通数` = as.numeric(`呼入接通数`),
+                # 分钟
+                `外呼通话平均时长` = hour(hms(`外呼通话平均时长`))*60+minute(hms(`外呼通话平均时长`))+second(hms(`外呼通话平均时长`))/60,
+                # 小时
+                `外呼通话总时长` = hour(hms(`外呼通话总时长`))+minute(hms(`外呼通话总时长`))/60+second(hms(`外呼通话总时长`))/3600,
+                `外呼总数` = as.numeric(`外呼总数`),
+                `外呼成功数` = as.numeric(`外呼成功数`)
+            ) %>% 
+            group_by(`dt`) %>%
+            summarise(
+                `呼入总数` = sum(`呼入总数`, na.rm=TRUE),
+                `呼入接通数` = sum(`呼入接通数`, na.rm=TRUE),
+                `呼入接通率` = `呼入接通数`/`呼入总数`,
+                `呼入通话平均时长` = sum(`呼入通话总时长`, na.rm=TRUE)/sum(`呼入接通数`, na.rm=TRUE)*60,
+                `呼入通话总时长` = sum(`呼入通话总时长`, na.rm=TRUE),
+                `外呼总数` = sum(`外呼总数`, na.rm=TRUE),
+                `外呼成功数` = sum(`外呼成功数`, na.rm=TRUE),
+                `外呼接通率` = `外呼成功数`/`外呼总数`,
+                `外呼通话平均时长` = sum(`外呼通话总时长`, na.rm=TRUE)/sum(`外呼成功数`, na.rm=TRUE)*60,
+                `外呼通话总时长` = sum(`外呼通话总时长`, na.rm=TRUE),
+                `总通时(H)` = sum(`呼入通话总时长`, `外呼通话总时长`, na.rm=TRUE)
+            ) %>% 
+            select(dt, `呼入`=`呼入总数`, `呼入接通数`, `呼入接通率`, `呼入平均通时(M)`=`呼入通话平均时长`, `呼入通时(H)`=`呼入通话总时长`, `外呼`=`外呼总数`, `外呼接通`=`外呼成功数`, `外呼接通率`, `外呼平均通时(M)`=`外呼通话平均时长`, `外呼通时(H)`=`外呼通话总时长`, `总通时(H)`)
+        # xn
+        # 通过dept筛选部门
+        xn <- xn %>%
+            rename(name=`用户_商户`) %>%
+            left_join(stuff, by='name') %>%
+            rename(`用户_商户`=name) %>% 
+            filter(dept %in% dept_)
+        xn <- xn %>% 
+            mutate(
+                dt = as.character(dt),
+                `满意度` = as.numeric(sub('%', '', `满意度`))/100
+            ) %>% 
+            group_by(dt) %>% 
+            summarise(
+                `有效咨询` = sum(`有效咨询`),
+                `无效咨询` = sum(`无效咨询`),
+                `咨询总量` = sum(`咨询总量`),
+                `首次响应时间` = mean(`首次响应时间`),
+                `平均响应时间` = mean(`平均响应时间`),
+                `满意度` = mean(`满意度`),
+                `有效咨询%` = sum(`有效咨询`)/sum(`咨询总量`),
+                `无效咨询%` = sum(`无效咨询`)/sum(`咨询总量`)
+            ) %>% 
+            select(dt, `有效咨询`=`有效咨询`, `有效咨询%`, `无效咨询`=`无效咨询`, `无效咨询%`, `咨询总量`=`咨询总量`, `首次响应时间`, `平均响应时间`, `满意度`)
+        # 三表合并
+        df <- dd1 %>%
+            left_join(dd2, by='dt') %>%
+            left_join(cc, by='dt') %>%
+            left_join(xn, by='dt') %>%
+            rename(`日期`=dt) %>% 
+            mutate(
+                `客服_支付总金额_占比` = `客服_支付总金额`/`平台_支付总金额`
+            )
+        df[is.na(df)] <- 0
+        # 月度汇总
+        df %>% 
+            add_row(
+                `日期`                 = '合计',
+                `呼入`                 = sum(df$`呼入`),
+                `呼入接通数`           = sum(df$`呼入接通数`),
+                `呼入接通率`           = sum(df$`呼入接通数`)/sum(df$`呼入`),
+                `呼入平均通时(M)`      = sum(df$`呼入通时(H)`)/sum(df$`呼入接通数`)*60,
+                `呼入通时(H)`          = sum(df$`呼入通时(H)`),
+                `外呼`                 = sum(df$`外呼`),
+                `外呼接通`             = sum(df$`外呼接通`),
+                `外呼接通率`           = sum(df$`外呼接通`)/sum(df$`外呼`),
+                `外呼平均通时(M)`      = sum(df$`外呼通时(H)`)/sum(df$`外呼接通`)*60,
+                `外呼通时(H)`          = sum(df$`外呼通时(H)`),
+                `总通时(H)`            = sum(df$`总通时(H)`),
+                `有效咨询`             = sum(df$`有效咨询`),
+                `无效咨询`             = sum(df$`无效咨询`),
+                `咨询总量`             = sum(df$`咨询总量`),
+                `有效咨询%`            = sum(df$`有效咨询`)/sum(df$`咨询总量`),
+                `无效咨询%`            = sum(df$`无效咨询`)/sum(df$`咨询总量`),
+                `首次响应时间`         = as.integer(mean(df$`首次响应时间`)),
+                `平均响应时间`         = as.integer(mean(df$`平均响应时间`)),
+                `满意度`               = mean(df$`满意度`),
+                `平台_在线支付_单数`   = sum(df$`平台_在线支付_单数`),
+                `平台_货到付款_单数`   = sum(df$`平台_货到付款_单数`),
+                `平台_支付总单数`      = sum(df$`平台_支付总单数`),
+                `平台_在线支付_金额`   = sum(df$`平台_在线支付_金额`),
+                `平台_货到付款_金额`   = sum(df$`平台_货到付款_金额`),
+                `平台_支付总金额`      = sum(df$`平台_支付总金额`),
+                `客服_在线支付_单数`   = sum(df$`客服_在线支付_单数`),
+                `客服_货到付款_单数`   = sum(df$`客服_货到付款_单数`),
+                `客服_支付总单数`      = sum(df$`客服_支付总单数`),
+                `客服_在线支付_金额`   = sum(df$`客服_在线支付_金额`),
+                `客服_货到付款_金额`   = sum(df$`客服_货到付款_金额`),
+                `客服_支付总金额`      = sum(df$`客服_支付总金额`),
+                `客服_支付总金额_占比` = sum(df$`客服_支付总金额`)/sum(df$`平台_支付总金额`)
+            ) %>% select(
+                `日期`,
+                `平台_在线支付_单数`,
+                `平台_货到付款_单数`,
+                `平台_支付总单数`,
+                `平台_在线支付_金额`,
+                `平台_货到付款_金额`,
+                `平台_支付总金额`,
+                `客服_在线支付_单数`,
+                `客服_货到付款_单数`,
+                `客服_支付总单数`,
+                `客服_在线支付_金额`,
+                `客服_货到付款_金额`,
+                `客服_支付总金额`,
+                `客服_支付总金额_占比`,
+                `呼入`,
+                `呼入接通数`,
+                `呼入接通率`,
+                `呼入平均通时(M)`,
+                `呼入通时(H)`,
+                `外呼`,
+                `外呼接通`,
+                `外呼接通率`,
+                `外呼平均通时(M)`,
+                `外呼通时(H)`,
+                `总通时(H)`,
+                `有效咨询`,
+                `无效咨询`,
+                `咨询总量`,
+                `有效咨询%`,
+                `无效咨询%`,
+                `首次响应时间`,
+                `平均响应时间`,
+                `满意度`
+            )
+    })
+    output$centre_daily_report <- DT::renderDataTable({
+        datatable(
+            df(),
+            escape = FALSE,
+            rownames = FALSE,
+            selection = 'none',
+            #extensions = c('FixedColumns', 'Scroller'),
+            extensions = list(FixedColumns = list(leftColumns = 1), Scroller=list()),
+            options = list(
+                autoWidth = TRUE,
+                columnDefs = list(list(width = '60px', targets = c(0))),
+                searching=TRUE,
+                deferRender=TRUE,
+                scrollY=200,
+                scrollX=TRUE,
+                scrollCollapse = TRUE,
+                order = list(list(0, 'asc')),
+                language = list(url = '//cdn.datatables.net/plug-ins/1.10.7/i18n/Chinese.json'),
+                pageLength = 100,
+                lengthChange = FALSE,
+                initComplete = JS("function(settings, json) {$('.dataTables_scrollBody').attr('style', 'overflow: auto; width: 100%;height: '+($(window).height()-210)+'px !important');}"),
+                fnDrawCallback = JS('function (oSettings, json) {oSettings.oScroll.sY = $(window).height()-210;$.each(oSettings.aoColumns, function(index, value){value.asSorting = ["desc", "asc"]})}')
+            )  # options end
+        ) %>%  # datatable end
+            formatRound(c('外呼平均通时(M)', '外呼通时(H)', '呼入平均通时(M)', '呼入通时(H)', '总通时(H)', '平台_在线支付_金额', '平台_货到付款_金额', '平台_支付总金额', '客服_在线支付_金额', '客服_货到付款_金额', '客服_支付总金额'), 2) %>% 
+            formatRound(c('首次响应时间', '平均响应时间'), 0) %>% 
+            formatPercentage(c('呼入接通率','外呼接通率', '有效咨询%', '无效咨询%', '客服_支付总金额_占比', '满意度'), 2)
+    })
+}
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 部门日报
+deptDailyReportUI <- function(id) {
+    ns <- NS(id)
+    tagList(
+        fluidRow(class='toolbar',
+            column(2, selectInput(ns('dept'), '部门', choices = c('客户发展部', '客户增值部'))),
+            column(2, selectInput(ns('team'), '分组', choices = c('全部', '发展1', '发展2', '发展3'))),
+            column(2, dateInput(ns('dt'), '日期', value = Sys.Date()-1, max = Sys.Date()-1), min='2016-03-01'),
+            column(2, downloadButton(ns('btn_export'), '导出', class = 'btn_nowrap'), actionButton(ns('btn_format_dt'), '精简', class = 'btn_nowrap', icon = icon('th')))
+        ),
+        fluidRow(
+            column(12, DT::dataTableOutput(ns('tbl')))
+        )
+    )
+}
+deptDailyReport <- function(input, output, session) {
+    dept <- reactive({
+        req(input$dept)
+        input$dept
+    })
+    team <- reactive({
+        req(input$team)
+        if(input$team=='全部') {
+            c('发展1', '发展2', '发展3', '增值1', '增值2')
+        } else{
+            input$team
+        }
+    })
+    dt <- reactive({
+        req(input$dt)
+        input$dt
+    })
+    
+    observeEvent(input$dept, {
+        if (dept()=='客户发展部') {
+            updateSelectInput(session, 'team', choices = c('全部', '发展1', '发展2', '发展3'))
+        }
+        else if(dept()=='客户增值部') {
+            updateSelectInput(session, 'team', choices = c('全部', '增值1', '增值2'))
+        }
+    })
+    
+    df <- reactive({
+        stuff <- dbGetQuery0('bbf_shiny', 'select * from bbf_stuff')
+        stuff <- stuff %>% filter(team %in% team())
+        
+        sql <- paste0("SELECT orderno, substring(post_date_str, 1, 10) as dt, actual_pay as pay, isback, payname, pay_status,mid,adminaccount,handle_status FROM tb_porder WHERE isback in (1, 5) AND substring(post_date_str,1,10)>='",dt(),"'")
+        dd <- dbGetQuery0('ecommerce', sql) %>%
+            mutate(
+                dt = as.character(dt),
+                payname = ifelse(payname %in% c('货到付款'), '货到付款', '在线支付'),
+                pay_status = ifelse(payname=='货到付款', 1, pay_status)
+            )
+        # isback==1 发展订单（支付+下单）
+        # isback==5 增值订单（支付+下单）
+        # 在线＋到付
+        dd1 <- dd %>% 
+            filter(handle_status %in% c(0, 1, 4, 6, 99), pay_status==1, !is.na(payname)) %>% 
+            group_by(dt, adminaccount, payname) %>%
+            summarise(
+                pay=sum(pay),
+                cnt=n_distinct(orderno)
+            ) %>% 
+            rename(金额=pay, 单数=cnt) %>% 
+            gather(variable, value, -(dt:payname)) %>%
+            unite(temp, payname, variable) %>%
+            spread(temp, value) %>% 
+            mutate(
+                `总成交_金额` = sum(`在线支付_金额`, `货到付款_金额`, na.rm=TRUE),
+                `总成交_单数` = sum(`在线支付_单数`, `货到付款_单数`, na.rm=TRUE)
+            ) %>% 
+            select(`在线支付_单数`, `货到付款_单数`, `总成交_单数`, `在线支付_金额`, `货到付款_金额`, `总成交_金额`)
+        # 下单总额
+        dd2 <- dd %>% 
+            group_by(dt, adminaccount) %>%
+            summarise(
+                pay=sum(pay),
+                cnt=n_distinct(orderno)
+            ) %>% 
+            rename(`下单金额`=pay, `下单数`=cnt)
+        
+        dd3 <- dd2 %>%
+            left_join(dd1, by=c('dt'='dt', 'adminaccount'='adminaccount'))
+        #fix na issue
+        dd3[is.na(dd3)] <- 0
+        dd3 <- dd3 %>% 
+            mutate(
+                `未付款金额` = `下单金额`-`总成交_金额`,
+                `未付款单量` = `下单数`-`总成交_单数`,
+                `订单确认%` = `总成交_金额`/`下单金额`
+            )
+        
+        
+        
+        
+        
+        
+        # 呼叫中心
+        cc <- dbGetQuery0('bbf_shiny', paste0("SELECT * FROM bbf_cc_call_report_dept WHERE dt='", dt(), "'"))
+        # 以stuff表筛选部门后作为合并表的基础，这样可防止漏掉记录
+        #cc <- cc %>% rename(stuff_id=`工号`) %>% left_join(stuff, by='stuff_id') %>% rename(`工号`=stuff_id)
+        cc <- cc %>% rename(name=`座席`, stuff_id=`工号`)
+        cc <- stuff %>% left_join(cc, by=c('name'='name', 'stuff_id'='stuff_id'))
+        cc <- cc %>%
+            filter(dept == dept()) %>%
+            mutate(
+                dt = ifelse(is.na(dt), as.character(dt[!is.na(dt)][1]), as.character(dt)),
+                `呼入通话平均时长` = hour(hms(`呼入通话平均时长`))*60+minute(hms(`呼入通话平均时长`))+second(hms(`呼入通话平均时长`))/60,
+                `呼入通话总时长` = hour(hms(`呼入通话总时长`))+minute(hms(`呼入通话总时长`))/60+second(hms(`呼入通话总时长`))/3600,
+                `呼入总数` = as.numeric(`呼入总数`),
+                `呼入接通数` = as.numeric(`呼入接通数`),
+                `外呼通话平均时长` = hour(hms(`外呼通话平均时长`))*60+minute(hms(`外呼通话平均时长`))+second(hms(`外呼通话平均时长`))/60,
+                `外呼通话总时长` = hour(hms(`外呼通话总时长`))+minute(hms(`外呼通话总时长`))/60+second(hms(`外呼通话总时长`))/3600,
+                `外呼总数` = as.numeric(`外呼总数`),
+                `外呼成功数` = as.numeric(`外呼成功数`)
+            ) %>% 
+            group_by(`dt`, `name`) %>%
+            summarise(
+                `stuff_id`         = max(stuff_id),
+                `name_py`          = max(name_py),
+                `呼入总数`         = sum(`呼入总数`, na.rm=TRUE),
+                `呼入接通数`       = sum(`呼入接通数`, na.rm=TRUE),
+                `呼入接通率`       = `呼入接通数`/`呼入总数`,
+                `呼入通话平均时长` = mean(`呼入通话平均时长`, na.rm=TRUE),
+                `呼入通话总时长`   = sum(`呼入通话总时长`, na.rm=TRUE),
+                `外呼总数`         = sum(`外呼总数`, na.rm=TRUE),
+                `外呼成功数`       = sum(`外呼成功数`, na.rm=TRUE),
+                `外呼接通率`       = `外呼成功数`/`外呼总数`,
+                `外呼通话平均时长` = mean(`外呼通话平均时长`, na.rm=TRUE),
+                `外呼通话总时长`   = sum(`外呼通话总时长`, na.rm=TRUE),
+                `总通时(H)`        = `呼入通话总时长`+`外呼通话总时长`
+            ) %>% 
+            select(dt, name, `name_py`, `工号`=stuff_id, `呼入`=`呼入总数`, `呼入接通数`, `呼入接通率`, `呼入平均通时(M)`=`呼入通话平均时长`, `呼入通时(H)`=`呼入通话总时长`, `外呼`=`外呼总数`, `外呼接通数`=`外呼成功数`, `外呼接通率`, `外呼平均通时(M)`=`外呼通话平均时长`, `外呼通时(H)`=`外呼通话总时长`, `总通时(H)`)
+        # 小能
+        xn <- dbGetQuery0('bbf_shiny', paste0("SELECT * FROM bbf_xn_daily where dt='",dt(),"'"))
+        # xn <- xn %>% rename(name=`用户_商户`) %>% left_join(stuff, by='name') %>% rename(`用户_商户`=name)
+        xn <- xn %>% rename(name=`用户_商户`)
+        xn <- stuff %>% left_join(xn, by='name')
+        xn <- xn %>% 
+            filter(dept == dept()) %>% 
+            group_by(name) %>% 
+            mutate(
+                dt = ifelse(is.na(dt), as.character(dt[!is.na(dt)][1]), as.character(dt)),
+                `有效咨询%` = `有效咨询`/`咨询总量`,
+                `无效咨询%` = `无效咨询`/`咨询总量`
+            ) %>% 
+            select(dt, name, `有效咨询`=`有效咨询`, `有效咨询%`, `无效咨询`=`无效咨询`, `无效咨询%`, `咨询总量`=`咨询总量`, `首次响应时间`, `平均响应时间`, `满意度`)
+        
+        df <- cc %>% 
+            left_join(dd3, by=c('dt'='dt', 'name_py'='adminaccount')) %>%
+            left_join(xn, by=c('dt'='dt', 'name'='name')) %>% 
+            rename(`日期`=dt, `座席`=name) %>%
+            select(-name_py)
+        
+        # fixed na issue
+        df[is.na(df)] <- 0
+        df <- df %>%
+            mutate(
+                `满意度` = as.numeric(sub('%', '', `满意度`))/100,
+                `转化率` = ifelse(`呼入接通数`+`外呼接通数`+`咨询总量`==0, 0, `总成交_单数`/(`呼入接通数`+`外呼接通数`+`咨询总量`))
+            )
+        df[is.na(df)] <- 0
+        df %>% 
+            add_row(
+                `日期`            = '合计',
+                `座席`            = '',
+                `工号`            = 8888,
+                `呼入`            = sum(df$`呼入`),
+                `呼入接通数`      = sum(df$`呼入接通数`),
+                `呼入接通率`      = sum(df$`呼入接通数`)/sum(df$`呼入`),
+                `呼入平均通时(M)` = mean(df$`呼入平均通时(M)`),
+                `呼入通时(H)`     = sum(df$`呼入通时(H)`),
+                `外呼`            = sum(df$`外呼`),
+                `外呼接通数`      = sum(df$`外呼接通数`),
+                `外呼接通率`      = sum(df$`外呼接通数`)/sum(df$`外呼`),
+                `外呼平均通时(M)` = mean(df$`外呼平均通时(M)`),
+                `外呼通时(H)`     = sum(df$`外呼通时(H)`),
+                `总通时(H)`       = sum(df$`总通时(H)`),
+                `下单金额`        = sum(df$`下单金额`),
+                `下单数`          = sum(df$`下单数`),
+                `在线支付_单数`   = sum(df$`在线支付_单数`),
+                `货到付款_单数`   = sum(df$`货到付款_单数`),
+                `总成交_单数`     = sum(df$`总成交_单数`),
+                `在线支付_金额`   = sum(df$`在线支付_金额`),
+                `货到付款_金额`   = sum(df$`货到付款_金额`),
+                `总成交_金额`     = sum(df$`总成交_金额`),
+                `未付款金额`      = sum(df$`未付款金额`),
+                `未付款单量`      = sum(df$`未付款单量`),
+                `订单确认%`       = sum(df$`总成交_金额`)/sum(df$`下单金额`),
+                `有效咨询`        = sum(df$`有效咨询`),
+                `有效咨询%`       = sum(df$`有效咨询`)/sum(df$`咨询总量`),
+                `无效咨询`        = sum(df$`无效咨询`),
+                `无效咨询%`       = sum(df$`无效咨询`)/sum(df$`咨询总量`),
+                `咨询总量`        = sum(df$`咨询总量`),
+                `首次响应时间`    = as.integer(mean(df$`首次响应时间`)),
+                `平均响应时间`    = as.integer(mean(df$`平均响应时间`)),
+                `满意度`          = mean(df$`满意度`, na.rm=TRUE),
+                `转化率`          = ifelse(sum(df$`呼入接通数`)+sum(df$`外呼接通数`)+sum(df$`咨询总量`)==0, 0, sum(df$`总成交_单数`)/(sum(df$`呼入接通数`)+sum(df$`外呼接通数`)+sum(df$`咨询总量`)))
+            )
+        
+    })
+    # 精简列
+    observeEvent(input$btn_format_dt, {
+        js$colVis(0, 1, 2, 4, 9, 18, 19, 20, 21, 22, 29, 30, 31, 33)
+    })
+    output$tbl <- DT::renderDataTable({
+        datatable(
+            df(),
+            escape = FALSE,
+            rownames = FALSE,
+            selection = 'none',
+            #extensions = c('FixedColumns', 'Scroller'),
+            extensions = list(FixedColumns = list(leftColumns = 2), Scroller=list()),
+            # save instance of this table to global window, so then we can use it for colVis
+            callback = JS("window.xtbl = table;"),
+            options = list(
+                autoWidth = TRUE,
+                columnDefs = list(list(width = '60px', targets = c(0, 1))),
+                searching=TRUE,
+                search = list(regex = TRUE, caseInsensitive = FALSE),
+                deferRender=TRUE,
+                scrollY=200,
+                scrollX=TRUE,
+                scrollCollapse = TRUE,
+                order = list(list(2, 'asc')),
+                language = list(url = '//cdn.datatables.net/plug-ins/1.10.7/i18n/Chinese.json'),
+                pageLength = 100,
+                lengthChange = FALSE,
+                initComplete = JS("function(settings, json) {$('.dataTables_scrollBody').attr('style', 'overflow: auto; width: 100%;height: '+($(window).height()-210)+'px !important');}"),
+                fnDrawCallback = JS('function (oSettings, json) {oSettings.oScroll.sY = $(window).height()-210;$.each(oSettings.aoColumns, function(index, value){value.asSorting = ["desc", "asc"]})}')
+            )  # options end
+        ) %>%  # datatable end
+            formatRound(c('外呼平均通时(M)', '外呼通时(H)', '呼入平均通时(M)', '呼入通时(H)', '总通时(H)', '总成交_金额', '未付款金额'), 2) %>% 
+            formatPercentage(c('呼入接通率','外呼接通率', '满意度', '有效咨询%', '无效咨询%', '订单确认%', '转化率'), 2)
+    })
+    
+    output$btn_export <- downloadHandler(paste('bbf-data-dept-',Sys.Date(),'.csv',sep=''), content = function(file) {
+        if(TRUE){
+            tmp <- df()[input$tbl_rows_all, , drop = FALSE]
+            write.csv(tmp, file, fileEncoding='gbk',row.names=FALSE)
+        } else {
+            write.csv('无数据下载权限', file, fileEncoding='gbk', row.names = FALSE, col.names = FALSE)
+        }
+        
+    })
+}
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# demo
+demoUI <- function(id){
+    ns <- NS(id)
+    
+    tagList(
+        DT::dataTableOutput(ns('demo'))
+    )
+}
+demo <- function(input, output, session) {
+    output$demo <- DT::renderDataTable({
+        datatable(
+            iris,
+            escape = FALSE,
+            rownames = FALSE,
+            selection = 'none',
+            extensions = 'Scroller',
+            options = list(
+                searching=TRUE,
+                deferRender=TRUE,
+                scrollY=200,
+                scrollCollapse = TRUE,
+                pageLength = 100,
+                lengthChange = FALSE,
+                initComplete = JS("function(settings, json) {$('.dataTables_scrollBody').attr('style', 'overflow: auto; width: 100%;height: '+($(window).height()-250)+'px !important');}"),
+                fnDrawCallback = JS("function (oSettings, json) {oSettings.oScroll.sY = $(window).height()-170; $.each(oSettings.aoColumns, function(index, value){value.asSorting = ['desc', 'asc']})}")
+            ) # options end
+        ) # datatable end
+    })
+}
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# rfm table
+rfmTableUI <- function(id) {
+    ns <- NS(id)
+    
+    tagList(
+        HTML('
+             <style>
+             .table {
+                width: 100% !important;
+             }
+             .table > tbody > tr > td:nth-child(1) {
+                text-align: left;
+             }
+             .table > tbody > tr > th {
+                text-align:right !important;
+             }
+            </style>'
+        ),
+        titlePanel('RFM'),
+        helpText(paste0('订单范围：2015-01-01至', as.Date(file.mtime('./data/rfm.rds')), ', 计算时间：', file.mtime('./data/rfm.rds'), ', 每月月初重新计算,计算比较费时请耐心等待')),
+        helpText(textOutput(ns('desc_text'))),
+        fluidRow(
+            column(3, h5('RFM分布'), DT::dataTableOutput(ns('rfm_total'))),
+            column(3, offset = 1, h5('全部占比%'), DT::dataTableOutput(ns('rfm_total_pct'))),
+            column(5)
+            # column(3, h5('F比例分布%'), DT::dataTableOutput(ns('rfm_row_pct'))),
+            # column(3, h5('R比例分布%'), DT::dataTableOutput(ns('rfm_col_pct')))
+        )
+        
+    )
+    
+}
+rfmTable <- function(input, output, session) {
+    rfm <- reactive({
+        # 缓存不存在或者距离上次更新超过30天则会触发缓存更新
+        if (as.numeric(Sys.Date() - as.Date(file.info('./data/rfm.rds')$mtime)) >= 30 | !file.exists('./data/rfm.rds')){
+            x <- dbGetQuery0('ecommerce', "select mid, substring(post_date_str, 1, 10) as dt, actual_pay as pay from tb_porder where post_date_str>='2015-01-01 00:00:00' and handle_status in (1, 4, 6, 99)")
+            r.interval = seq(0,360, by=30)
+            r.interval = c(0, 30, 90, 180, 360)
+            lbl = paste(sprintf('%02d', 1:length(r.interval)), paste(r.interval, c(r.interval[-1], 'inf'),sep = '-'), sep=':')
+            x <- x %>%
+                select(id=mid, r=dt, m=pay) %>%
+                mutate(r=as.Date(r)) %>% 
+                group_by(id, r) %>%  # 人店天合并
+                summarise(
+                    m = sum(m)
+                ) %>% 
+                group_by(id) %>% 
+                summarise(
+                    #r = as.numeric(Sys.Date() - max(r)),
+                    r = as.numeric(Sys.Date() - max(r)),
+                    f = n(),
+                    m = sum(m),
+                    label = cut(r, c(r.interval, Inf), labels=lbl)
+                ) %>% 
+                mutate(
+                    f = ifelse(f>4, 'F5+', paste0('F', f))
+                )
+            saveRDS(x, './data/rfm.rds')
+            session$reload()
+        } else {
+            x <- read_rds('./data/rfm.rds')
+        }
+        x
+    })
+    
+    output$desc_text <- renderText({
+        rfm <- colSums(reshape2::acast(rfm(), label~f))
+
+        paste0('1次到2次的重复购买率',round(sum(rfm[2:5])/sum(rfm)*100, 2), '%，2次到3次的重复购买率',round(sum(rfm[3:5])/sum(rfm[2:5])*100, 2), '%，3次到4次的重复购买率',round(sum(rfm[4:5])/sum(rfm[3:5])*100, 2), '%\n')
+    })
+    
+    output$rfm_total <- DT::renderDataTable({
+        df <- reshape2::acast(rfm(), label~f) %>% as.data.frame()
+        brks <- quantile(df, probs = seq(.05, .95, .037), na.rm = TRUE)
+        clrs <- round(seq(255, 40, length.out = length(brks) + 1), 0) %>% {paste0("rgb(255,", ., ",", ., ")")}
+        
+        datatable(df,
+                  escape = FALSE,
+                  rownames = TRUE,
+                  selection = 'none',
+                  options = list(
+                      autoWidth = TRUE,
+                      searching = FALSE,
+                      deferRender = TRUE,
+                      scrollCollapse = TRUE,
+                      language = list(url = '//cdn.datatables.net/plug-ins/1.10.7/i18n/Chinese.json'),
+                      paging = FALSE,
+                      lengthChange = FALSE,
+                      bPaginate = FALSE,
+                      bFilter = FALSE,
+                      bInfo = FALSE,
+                      initComplete = JS("function(settings, json) {}"),
+                      fnDrawCallback = JS('function (oSettings, json) {}')
+                  )
+        ) %>% formatStyle(names(df), backgroundColor = styleInterval(brks, clrs))
+    })
+    output$rfm_total_pct <- DT::renderDataTable({
+        df <- prop.table(reshape2::acast(rfm(), label~f)) %>% as.data.frame()
+        brks <- quantile(df, probs = seq(.05, .95, .037), na.rm = TRUE)
+        clrs <- round(seq(255, 40, length.out = length(brks) + 1), 0) %>% {paste0("rgb(255,", ., ",", ., ")")}
+        
+        datatable(df,
+                  escape = FALSE,
+                  rownames = TRUE,
+                  selection = 'none',
+                  options = list(
+                      autoWidth = TRUE,
+                      searching = FALSE,
+                      deferRender = TRUE,
+                      scrollCollapse = TRUE,
+                      language = list(url = '//cdn.datatables.net/plug-ins/1.10.7/i18n/Chinese.json'),
+                      paging = FALSE,
+                      lengthChange = FALSE,
+                      bPaginate = FALSE,
+                      bFilter = FALSE,
+                      bInfo = FALSE,
+                      initComplete = JS("function(settings, json) {}"),
+                      fnDrawCallback = JS('function (oSettings, json) {}')
+                  )
+        ) %>% formatStyle(names(df), backgroundColor = styleInterval(brks, clrs)) %>% formatPercentage(colnames(df), 2)
+    })
+    # output$rfm_row_pct <- DT::renderDataTable({
+    #     df <- round(prop.table(reshape2::acast(rfm(), label~f), 1)*100, 2) %>% as.data.frame()
+    #     brks <- quantile(df, probs = seq(.05, .95, .037), na.rm = TRUE)
+    #     clrs <- round(seq(255, 40, length.out = length(brks) + 1), 0) %>% {paste0("rgb(255,", ., ",", ., ")")}
+    #     
+    #     datatable(df,
+    #               escape = FALSE,
+    #               rownames = TRUE,
+    #               selection = 'none',
+    #               options = list(
+    #                   autoWidth = TRUE,
+    #                   searching = FALSE,
+    #                   deferRender = TRUE,
+    #                   scrollCollapse = TRUE,
+    #                   language = list(url = '//cdn.datatables.net/plug-ins/1.10.7/i18n/Chinese.json'),
+    #                   paging = FALSE,
+    #                   lengthChange = FALSE,
+    #                   bPaginate = FALSE,
+    #                   bFilter = FALSE,
+    #                   bInfo = FALSE,
+    #                   initComplete = JS("function(settings, json) {}"),
+    #                   fnDrawCallback = JS('function (oSettings, json) {}')
+    #               )
+    #     ) %>% formatStyle(names(df), backgroundColor = styleInterval(brks, clrs))
+    # })
+    # output$rfm_col_pct <- DT::renderDataTable({
+    #     df <- round(prop.table(reshape2::acast(rfm(), label~f), 2)*100, 2) %>% as.data.frame()
+    #     brks <- quantile(df, probs = seq(.05, .95, .037), na.rm = TRUE)
+    #     clrs <- round(seq(255, 40, length.out = length(brks) + 1), 0) %>% {paste0("rgb(255,", ., ",", ., ")")}
+    #     
+    #     datatable(df,
+    #               escape = FALSE,
+    #               rownames = TRUE,
+    #               selection = 'none',
+    #               options = list(
+    #                   autoWidth = TRUE,
+    #                   searching = FALSE,
+    #                   deferRender = TRUE,
+    #                   scrollCollapse = TRUE,
+    #                   language = list(url = '//cdn.datatables.net/plug-ins/1.10.7/i18n/Chinese.json'),
+    #                   paging = FALSE,
+    #                   lengthChange = FALSE,
+    #                   bPaginate = FALSE,
+    #                   bFilter = FALSE,
+    #                   bInfo = FALSE,
+    #                   initComplete = JS("function(settings, json) {}"),
+    #                   fnDrawCallback = JS('function (oSettings, json) {}')
+    #               )
+    #     ) %>% formatStyle(names(df), backgroundColor = styleInterval(brks, clrs))
+    # })
+}
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# FRM chart
+rfmUI <- function(id) {
+    ns <- NS(id)
+    
+    tagList(
+        fluidRow(class='toolbar',
+                 column(3, dateRangeInput(ns('dt'), '下单时间', '2015-01-01', Sys.Date()-1))
+        ),
+        fluidRow(
+            column(4, plotlyOutput(ns('p'))),
+            column(4, plotlyOutput(ns('p1'))),
+            column(4, d3funnelOutput(ns('p2')))
+        ),
+        fluidRow(
+            column(12, plotlyOutput(ns('p3')))
+        )
+    )
+}
+rfm <- function(input, output, session) {
+    dt <- reactive({
+        req(input$dt)
+        input$dt
+    })
+    
+    df <- reactive({
+        if (day(Sys.Date())==31) {
+            # actual_pay<50000 排除刷单
+            x <- dbGetQuery0('ecommerce', paste0("select account, dt, datediff(Now(), dt) as r, count(account) as f,sum(m) as pay, sum(m)/sum(cnt) as m from (select account, max(post_date_str) as dt, sum(actual_pay) as m, count(distinct orderno) as cnt from tb_porder a where actual_pay<20000 and payname is not null and post_date_str>'",dt()[1],"' and post_date_str<='",dt()[2],"' group by account, date_format(post_date_str, '%Y-%m-%d')) b group by account"))
+            dbGetQuery0('bbf_shiny', 'drop table bbf_rfm')
+            dbWriteTable0('bbf_shiny', 'bbf_rfm', x)
+        } else {
+            x <- dbReadTable0('bbf_shiny', 'bbf_rfm')
+        }
+        x
+    })
+    
+    output$p <- renderPlotly({
+        g <- df() %>% filter(r>0) %>% ggplot(aes(r))+geom_bar(binwidth = 5)+labs(x='最后一次购买间隔')
+        ggplotly(g)
+    })
+    
+    output$p1 <- renderPlotly({
+        g <- df() %>% filter(m>0, m<2000) %>% ggplot(aes(m))+geom_bar(binwidth = 10, center=0)+labs(x='单均价')
+        ggplotly(g)
+    })
+    output$p2 <- renderD3funnel({
+        tmp <- df() %>% filter(f>0) %>% mutate(f=paste0('F',ifelse(f<5, f, '5+'))) %>% group_by(f) %>% summarise(n=n())
+        d3funnel(tmp)
+    })
+    output$p3 <- renderPlotly({
+        tmp <- df()
+        lbl <- cut(tmp$pay, c(seq(0, 5000, by=100), Inf),dig.lab=10)
+        tmp$lbl = lbl
+        g <- tmp %>% group_by(lbl) %>% summarise(cnt=n_distinct(account), pay=sum(pay)) %>% mutate(`人数` = cnt/sum(cnt)*100, `金额` = pay/sum(pay)*100) %>% gather(k, v, `人数`:`金额`) %>% select(`累计成交金额区间`=lbl, `类型`=k, `比例`=v) %>% ggplot(aes(`累计成交金额区间`, `比例`))+geom_bar(stat='identity',position="dodge",aes(fill=`类型`))+theme(axis.text.x=element_text(angle = 90))+labs(y='比例(%)')
+        
+        #g <- table(lbl) %>% as.data.frame() %>% ggplot(aes(lbl, Freq))+geom_bar(stat='identity')+theme(axis.text.x=element_text(angle = 90))+labs(x='累计消费金额')
+        ggplotly(g)
+    })
+}
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 客单价
+kdUI <- function(id) {
+    ns <- NS(id)
+    
+    tagList(
+        fluidRow(class='toolbar',
+                 column(3, dateRangeInput(ns('dt'), '下单时间', '2015-01-01', Sys.Date()-1)),
+                 column(3, radioButtons(ns('freq'), '频率', choices = c('按月'='month','按周'='week', '按天'='day'), inline = TRUE))
+        ),
+        fluidRow(
+            column(12, plotlyOutput(ns('p')))
+        )
+    )
+}
+kd <- function(input, output, session) {
+    dt <- reactive({
+        req(input$dt)
+        input$dt
+    })
+    freq <- reactive({
+        req(input$freq)
+        input$freq
+    })
+    df <- reactive({
+        if(freq()=='month') {
+            prefix_sql <- 'substring(post_date_str,1,7)'
+        } else if(freq()=='week') {
+            prefix_sql <- 'weekofyear(post_date_str)'
+        } else if(freq()=='day') {
+            prefix_sql <- 'substring(post_date_str,1,10)'
+        } else {
+            prefix_sql <- 'substring(post_date_str,1,7)'
+        }
+        sql <- paste0("select " ,prefix_sql, " as dt, sum(actual_pay)/count(distinct mid) as m from tb_porder where post_date_str>'",dt()[1],"' and post_date_str<='",dt()[2],"' and payname is not null and handle_status not in (5, 7, 97) group by dt")
+        x <- dbGetQuery0('ecommerce', sql) %>% mutate(dt = as.factor(dt))
+        if(freq()=='day') {
+            x$dt <- as.Date(x$dt)
+        }
+        x
+    })
+    
+    output$p <- renderPlotly({
+        g <- df() %>% 
+            ggplot(aes(dt, m))+geom_bar(aes(fill=3), stat='identity')+labs(x='客单价趋势')+theme(legend.position='none')
+            #ggplot()+geom_point(aes(dt, m, color=2))+geom_smooth()+labs(x='客单价趋势')+theme(legend.position='none')
+        ggplotly(g)
+    })
+}
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 地域-客单价
+dykdUI <- function(id){
+    ns <- NS(id)
+    
+    tagList(
+        fluidRow(class='toolbar',
+                 column(2, dateRangeInput(ns('dt'), '日期', language='zh_CN', start = Sys.Date()-months(1)-1, end = Sys.Date()-1)),
+                 column(1, downloadButton(ns('btn_export'), '导出', class = 'btn_nowrap'))
+        ),
+        br(),
+        fluidRow(
+            column(6, DT::dataTableOutput(ns('tbl'))),
+            column(6, plotOutput(ns('p2'), height = "600px"))
+        )
+    )
+}
+dykd <- function(input, output, session){
+    dt <- reactive({
+        req(input$dt)
+        input$dt
+    })
+    
+    df0 <- reactive({
+        dbGetQuery0('ecommerce', paste0("select province_name,city_name,mid, merchant_name, actual_pay from tb_porder where post_date_str>='",dt()[1],"' and post_date_str<='",dt()[2],"' and payname is not null and actual_pay<10000")) %>% filter(between(nchar(province_name) ,2, 4))
+    })
+    
+    df <- reactive({
+        df0() %>%
+            group_by(city_name) %>%
+            summarise(
+                province_name=max(province_name),
+                n=n_distinct(mid),
+                pay=sum(actual_pay, na.rm=TRUE),
+                kd=pay/n,
+                n_merchant = n_distinct(merchant_name)
+            ) %>% 
+            filter(n>10, !is.na(province_name), !is.na(city_name)) %>% 
+            mutate(pct=pay/sum(pay)) %>% 
+            select(`省份`=province_name, `城市`=city_name, `商家数`=n_merchant, `买家数`=n, `成交金额`=pay, `客单价`=kd, `百分比`=pct) %>% 
+            ungroup() %>% 
+            arrange(desc(`买家数`))
+    })
+    
+    df2 <- reactive({
+        s <- ifelse(is.null(input$tbl_rows_selected), input$tbl_rows_all, input$tbl_rows_selected)
+        city <- df()$`城市`[input$tbl_rows_selected]
+        df0() %>% 
+            filter(city_name %in% city) %>% 
+            group_by(mid) %>% 
+            summarise(
+                city_name = max(city_name),
+                actual_pay = sum(actual_pay, na.rm=TRUE)
+            ) %>% 
+            mutate(lbl = cut(actual_pay, c(seq(from=0, to=1000, by=50), max(actual_pay))))
+    })
+    
+    output$tbl <- DT::renderDataTable({
+        datatable(
+            df(),
+            escape = FALSE,
+            rownames = FALSE,
+            selection = list(mode = 'multiple', selected = c(1, 2)),
+            extensions = list(Scroller=list()),
+            options = list(
+                autoWidth = TRUE,
+                #columnDefs = list(list(width = '60px', targets = c(0, 1))),
+                search = list(regex = TRUE, caseInsensitive = FALSE),
+                deferRender=TRUE,
+                scrollY=200,
+                scrollCollapse = TRUE,
+                order = list(list(2, 'desc')),
+                language = list(url = '//cdn.datatables.net/plug-ins/1.10.7/i18n/Chinese.json'),
+                pageLength = 100,
+                lengthChange = FALSE,
+                initComplete = JS("function(settings, json) {$('.dataTables_scrollBody').attr('style', 'overflow: auto; width: 100%;height: '+($(window).height()-210)+'px !important');}"),
+                fnDrawCallback = JS('function (oSettings, json) {oSettings.oScroll.sY = $(window).height()-210;$.each(oSettings.aoColumns, function(index, value){value.asSorting = ["desc", "asc"]})}')
+            )
+        ) %>% formatPercentage(c('百分比'), 2) %>% formatRound(c('客单价'), 0)
+    })
+    
+    output$p2 <- renderPlot({
+        showtext.auto()
+        p <- df2() %>%
+            filter(actual_pay<1000) %>%
+            ggplot()+
+            geom_density(aes(actual_pay, color=city_name, fill=city_name, alpha=0.3), show_guide=FALSE) +
+            stat_density(aes(x=actual_pay, colour=city_name), geom="line", position="identity") +
+            geom_vline(data=df2() %>% group_by(city_name) %>% summarise(m=sum(actual_pay, na.rm=TRUE)/n()), aes(xintercept = m, colour=city_name), linetype = "longdash") +
+            theme(axis.text.x = element_text(angle = 90, hjust = 1), text=element_text(family = 'wqy')) +
+            labs(title='客单价分布', x = '客单价', y = '占比')
+        direct.label(p, list('top.points', cex=0.8))
+    })
+}
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 商家销售分析
+merchantUI <- function(id){
+    ns <- NS(id)
+    
+    tagList(
+        fluidRow(class='',
+                 column(2, dateRangeInput(ns('dt'), NULL, language='zh_CN', start = Sys.Date()-months(1)-1, end = Sys.Date()-1)),
+                 #column(1, downloadButton(ns('btn_export'), '导出', class = 'btn_nowrap')),
+                 column(2,offset = 2, selectInput(ns('shop'), NULL, choices = c('同康柳影店', '北京好药师大药房')))
+        ),
+        br(),
+        fluidRow(
+            column(4, DT::dataTableOutput(ns('tbl'))),
+            column(4, DT::dataTableOutput(ns('tbl2'))),
+            column(4, plotOutput(ns('p3'), height = "300px"), plotOutput(ns('p4'), height = "300px"))
+        )
+    )
+}
+merchant <- function(input, output, session){
+    dt <- reactive({
+        req(input$dt)
+        input$dt
+    })
+    shop <- reactive({
+        req(input$shop)
+        input$shop
+    })
+
+    df0 <- reactive({
+        dbGetQuery0('ecommerce', paste0("select merchant_name,mid, actual_pay from tb_porder where post_date_str>='",dt()[1],"' and post_date_str<='",dt()[2],"' and (pay_status=1 or (payname='货到付款' and handle_status not in (5,7,97))) and actual_pay<10000"))
+    })
+    
+    df <- reactive({
+        df0() %>%
+            group_by(merchant_name) %>%
+            summarise(
+                n = n(),
+                pay = sum(actual_pay, na.rm=TRUE)/10000,
+                kd = sum(actual_pay, na.rm=TRUE)/n()
+            ) %>% 
+            filter(n>10, !is.na(merchant_name)) %>% 
+            arrange(desc(n)) %>% 
+            mutate(pct=n/sum(n)) %>% 
+            select(`商家`=merchant_name, `买家`=n, `销售/万`=pay, `客单`=kd, `占比`=pct)
+    })
+    
+    observe({
+        if (!is.null(input$tbl_rows_selected)) {
+            merchant <- df()$`商家`[input$tbl_rows_selected]
+            updateSelectInput(session, 'shop', choices = merchant)
+        }
+    })
+    
+    df2 <- reactive({
+        s <- ifelse(is.null(input$tbl_rows_selected), input$tbl_rows_all, input$tbl_rows_selected)
+        merchant <- paste(df()$`商家`[input$tbl_rows_selected], collapse="','")
+        dbGetQuery0('ecommerce', paste0("select b.merchant_name,a.pid,a.name,a.shop_price,a.quantity, a.amount from tb_porder_line a inner join tb_porder b on a.oid=b.oid and b.merchant_name in ('",merchant,"') and b.post_date_str>='",dt()[1],"' and b.post_date_str<='",dt()[2],"'")) %>%
+            group_by(merchant_name, pid) %>%
+            summarise(
+                name = max(name),
+                shop_price = mean(shop_price),
+                quantity = sum(quantity, na.rm=TRUE),
+                amount = sum(amount, na.rm = TRUE)
+            )
+    })
+    
+    df3 <- reactive({
+        s <- ifelse(is.null(input$tbl_rows_selected), input$tbl_rows_all, input$tbl_rows_selected)
+        merchant <- df()$`商家`[input$tbl_rows_selected]
+        df0() %>% 
+            filter(merchant_name %in% merchant)
+    })
+    
+    output$tbl <- DT::renderDataTable({
+        datatable(
+            df(),
+            escape = FALSE,
+            rownames = FALSE,
+            selection = list(mode = 'multiple', selected = c(1, 2)),
+            extensions = list(Scroller=list()),
+            options = list(
+                autoWidth = TRUE,
+                searching = TRUE,
+                deferRender = TRUE,
+                scrollY=200,
+                scrollX=TRUE,
+                scrollCollapse = TRUE,
+                order = list(list(1, 'desc')),
+                language = list(url = '//cdn.datatables.net/plug-ins/1.10.7/i18n/Chinese.json'),
+                pageLength = 100,
+                lengthChange = FALSE,
+                initComplete = JS("function(settings, json) {$('.dataTables_scrollBody').attr('style', 'overflow: auto; width: 100%;height: '+($(window).height()-200)+'px !important');}"),
+                fnDrawCallback = JS('function (oSettings, json) {oSettings.oScroll.sY = $(window).height()-200;$.each(oSettings.aoColumns, function(index, value){value.asSorting = ["desc", "asc"]})}')
+            )
+        ) %>% formatPercentage(c('占比'), 2) %>% formatRound(c('客单', '销售/万'), 0)
+    })
+    
+    output$tbl2 <- DT::renderDataTable({
+        datatable(
+            df2() %>% ungroup() %>% filter(merchant_name == shop()) %>% mutate(pct = amount/sum(amount, na.rm=TRUE)) %>% select(`商品` = name, `价格` = shop_price, `数量` = quantity, `销售` = amount, `占比` = pct),
+            escape = FALSE,
+            rownames = FALSE,
+            selection = 'none',
+            extensions = list(Scroller=list()),
+            options = list(
+                autoWidth = TRUE,
+                searching = FALSE,
+                deferRender = TRUE,
+                scrollY=200,
+                scrollX=TRUE,
+                scrollCollapse = TRUE,
+                order = list(list(3, 'desc')),
+                #columnDefs = list(list(width = '50px', targets = c(0))),
+                language = list(url = '//cdn.datatables.net/plug-ins/1.10.7/i18n/Chinese.json'),
+                pageLength = 100,
+                lengthChange = FALSE,
+                initComplete = JS("function(settings, json) {$('#DataTables_Table_0_wrapper > div.dataTables_scroll > div.dataTables_scrollBody').attr('style', 'overflow: auto; width: 100%;height: '+($(window).height()-200) +'px !important');}"),
+                fnDrawCallback = JS('function (oSettings, json) {oSettings.oScroll.sY = ($(window).height()-200);$.each(oSettings.aoColumns, function(index, value){value.asSorting = ["desc", "asc"]})}')
+            )
+        ) %>% formatPercentage(c('占比'), 2) %>% formatRound(c('数量', '销售', '价格'), 0)
+    })
+    
+    output$p3 <- renderPlot({
+        showtext.auto()
+        #df2() %>% ggplot(aes(lbl))+geom_bar()+facet_wrap(~merchant_name)+theme(axis.text.x = element_text(angle = 90, hjust = 1), text=element_text(family = 'wqy'))+labs(title='客单价分布', x = '客单价', y = '人数')
+        p <- df3() %>%
+            group_by(merchant_name, mid) %>% 
+            summarise(
+                actual_pay = sum(actual_pay, na.rm=TRUE)
+            ) %>% 
+            mutate(lbl = cut(actual_pay, c(seq(from=0, to=1000, by=50), max(actual_pay)))) %>% 
+            filter(actual_pay<1000) %>%
+            ggplot()+
+            geom_density(aes(actual_pay, color=merchant_name, fill=merchant_name, alpha=0.5), show_guide=FALSE) +
+            stat_density(aes(x=actual_pay, colour=merchant_name), geom="line", position="identity") +
+            geom_vline(data=df3() %>% group_by(merchant_name) %>% summarise(m=sum(actual_pay, na.rm=TRUE)/n()), aes(xintercept = m, colour=merchant_name), linetype = "longdash") +
+            #geom_text(data=df3() %>% group_by(merchant_name) %>% summarise(m=sum(actual_pay, na.rm=TRUE)/n()), aes(x=m, label=as.integer(m), y=-0.0001, colour=merchant_name), angle=90, vjust = 1)+
+            theme(axis.text.x = element_text(angle = 90, hjust = 1), text=element_text(family = 'wqy')) +
+            labs(x = '客单价', y = '占比')
+        direct.label(p, list('top.points', cex=0.8))
+    })
+    
+    output$p4 <- renderPlot({
+        showtext.auto()
+        p <- df2() %>% 
+            filter(shop_price<200) %>% 
+            ggplot()+
+            geom_density(aes(shop_price, color=merchant_name, fill=merchant_name, alpha=0.5), show_guide=FALSE) +
+            stat_density(aes(x=shop_price, colour=merchant_name), geom="line", position="identity") +
+            geom_vline(data=df2() %>% group_by(merchant_name) %>% summarise(m=sum(shop_price, na.rm=TRUE)/n()), aes(xintercept = m, colour=merchant_name), linetype = "longdash") +
+            theme(axis.text.x = element_text(angle = 90, hjust = 1), text=element_text(family = 'wqy')) +
+            labs(x = '商品价格', y = '占比')
+        direct.label(p, list('top.points', cex=0.8))
+    })
+}
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 转单报表
+transferReportUI <- function(id){
+    ns <- NS(id)
+    
+    tagList(
+        fluidRow(class='toolbar',
+            column(1, selectInput(ns('dt_type'), '日期类型', choices = c('支付'='post_date', '转单'='create_date', '承接'='accept_date', '审核'='check_date'))),
+            column(2, dateRangeInput(ns('dt'), '日期', language='zh_CN', start = Sys.Date()-months(1), end = Sys.Date())),
+            column(1, numericInput(ns('create_hour'), '转单>=X天', value = -1)),
+            column(1, numericInput(ns('check_hour'), '审核>=X天', value = -1)),
+            column(1, downloadButton(ns('btn_export'), '导出', class = 'btn_nowrap'))
+        ),
+        #sbr(),br(),
+        fluidRow(
+            DT::dataTableOutput(ns('tbl'))
+        )
+    )
+}
+transferReport <- function(input, output, session) {
+    dt_type <- reactive({
+        req(input$dt_type)
+        input$dt_type
+    })
+    
+    dt <- reactive({
+        req(input$dt)
+        input$dt
+    })
+    
+    df <- reactive({
+        # 计算转单时间改下单时间为支付时间，避免商家使用客户支付晚了作为借口
+        sql <- paste0("
+        SELECT
+            cast(a.orderno as char) as orderno,
+            case when length(paydates)>5 then paydates else b.post_date_str end as post_date,
+            a.create_date,
+            a.accept_date,
+            a.check_date,
+            a.status,
+            a.old_merchant,
+            a.new_merchant,
+            a.fail_reason,
+            a.check_status,
+            a.check_user,
+            b.payname,
+        	b.actual_pay,
+        	b.name,
+        	b.mobile,
+            b.account
+        FROM
+        	tb_porder_transfer a
+            INNER JOIN tb_porder b ON a.orderno = b.orderno
+        ")
+        tmp <- dbGetQuery0('ecommerce', sql)
+        tmp <- tmp %>%
+            # 日期跟NULL做difftime操作会产生NULL
+            mutate(
+                post_date = as.POSIXct(post_date),
+                payname = ifelse(payname %in% c('货到付款'), '是', '否'),
+                `转单用时` = as.integer(ifelse(is.na(create_date) | is.na(post_date), -1, as.numeric(difftime(create_date, post_date, units = 'day')))),
+                `审核用时` = as.integer(ifelse(is.na(check_date) | is.na(accept_date), -1, as.numeric(difftime(check_date, accept_date, units = 'day')))),
+                post_date = as.Date(post_date, '%Y-%m-%d'),
+                create_date = as.Date(create_date, '%Y-%m-%d'),
+                accept_date = as.Date(accept_date, '%Y-%m-%d'),
+                check_date = as.Date(check_date, '%Y-%m-%d'),
+                `收货人信息` = paste(name, mobile, sep='/'),
+                status = c('审核中', '未承接', '转单成功','转单失败')[status+1]  # 0平台审核中,1未承接，2转单成功,3转单失败
+            ) %>%
+            group_by(orderno) %>% 
+            arrange(orderno, create_date) %>% 
+            mutate(`第几次转单`=seq_along(orderno)) %>% 
+            # 以下过滤会导致部分记录丢失：平台取消转单的记录是没有承接和审核时间的
+            filter_(
+                paste0('`转单用时` >= ', input$create_hour),
+                paste0('`审核用时` >= ', input$check_hour),
+                paste0(dt_type(), ' >= "', dt()[1], '"'),
+                paste0(dt_type(), ' <= "', dt()[2], '"')
+            ) %>% 
+            select(订单编号=orderno, 到付=payname,`收货人信息`, `第几次转单`, `审核人`=check_user, `转单用时(天)`=`转单用时`, `审核用时(天)`=`审核用时`,支付=post_date, 转单=create_date, 承接=accept_date, 审核=check_date, 原商家=old_merchant, 承接商家=new_merchant, 订单金额=actual_pay, 审核状态=status, 原因=fail_reason)
+    })
+    
+    output$btn_export <- downloadHandler(paste('bbf-data-transfer-',Sys.Date(),'.csv',sep=''), content = function(file) {
+        if(TRUE){
+            tmp <- df()[input$tbl_rows_all, , drop = FALSE] %>% ungroup() %>% mutate(`订单编号`=paste0("'", as.character(`订单编号`)))
+            write.csv(tmp, file, fileEncoding='gbk', row.names=FALSE)
+        } else {
+            write.csv('无数据下载权限', file, fileEncoding='gbk', row.names = FALSE, col.names = FALSE)
+        }
+        
+    })
+    
+    output$tbl <- DT::renderDataTable({
+        datatable(
+            df(),
+            escape = FALSE,
+            rownames = FALSE,
+            selection = 'none',
+            #filter = 'top',
+            #extensions = c('FixedColumns', 'Scroller'),
+            extensions = list(FixedColumns = list(leftColumns = 1), Scroller=list()),
+            options = list(
+                autoWidth = TRUE,
+                columnDefs = list(
+                    list(width = '120px', targets = c(0)),
+                    list(targets = c(2,4,5,6,7,8,9,12), searchable = FALSE)
+                ),
+                searching=TRUE,
+                deferRender=TRUE,
+                scrollY=200,
+                scrollX='100%',
+                scrollCollapse = TRUE,
+                order = list(list(0, 'asc')),
+                language = list(url = '//cdn.datatables.net/plug-ins/1.10.7/i18n/Chinese.json'),
+                pageLength = 200,
+                lengthChange = FALSE,
+                initComplete = JS("function(settings, json) {$('.dataTables_scrollBody').attr('style', 'overflow: auto; width: 100%;height: '+($(window).height()-210)+'px !important');}"),
+                fnDrawCallback = JS('function (oSettings, json) {oSettings.oScroll.sY = $(window).height()-210;$.each(oSettings.aoColumns, function(index, value){value.asSorting = ["desc", "asc"]})}')
+            )  # options end
+        ) %>%  # datatable end
+            formatRound(c('转单用时(天)', '审核用时(天)'), 0)
+    })
+}
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 退款原因
+drawbackReasonReportUI <- function(id){
+    ns <- NS(id)
+    
+    tagList(
+        fluidRow(class='toolbar',
+            column(2, radioButtons(ns('data_type'), '数据类型', choices = c('退款单数', '退款金额'), inline = TRUE)),
+            column(2, radioButtons(ns('dt_type'), '日期类型', choices = c('付款日期', '处理日期'), inline = TRUE)),
+            column(3, dateRangeInput(ns('dt'), '日期', start = '2016-03-01', end = '2016-03-31', weekstart = 5, language = 'zh_CN'))
+        ),
+        fluidRow(
+            dataTableOutput(ns('tbl'))
+        )
+    )
+}
+drawbackReasonReport <- function(input, output, session){
+    data_type <- reactive({
+        req(input$data_type)
+        input$data_type
+    })
+    dt_type <- reactive({
+        req(input$dt_type)
+        input$dt_type
+    })
+    dt <- reactive({
+        req(input$dt)
+        input$dt
+    })
+    df <- reactive({
+        sql <- ifelse(
+            dt_type()=='付款日期',
+            paste0("select a.reason, substring(b.paydates, 1, 10) as dt, a.amount from tb_porder_drawback a inner join tb_porder b on a.oid=b.oid where substring(b.paydates, 1, 10) >= '",dt()[1],"' and substring(b.paydates, 1, 10)<='",dt()[2],"' and a.reason not in ('Логистика и распределение проблемы', 'Из Продавцы') and a.dualstatus=2"),
+            paste0("select a.reason, substring(a.dualdates, 1, 10) as dt, a.amount from tb_porder_drawback a inner join tb_porder b on a.oid=b.oid where substring(b.paydates, 1, 10) >= '",dt()[1],"' and substring(b.paydates, 1, 10)<='",dt()[2],"' and a.reason not in ('Логистика и распределение проблемы', 'Из Продавцы') and a.dualstatus=2")
+        )
+        x <- dbGetQuery0('ecommerce', sql)
+        x <- x %>% 
+            group_by(reason, dt) %>% 
+            summarise(
+                cnt = n(),
+                amount = sum(amount)
+            ) %>% 
+            mutate(
+                d = substr(dt, 6, 10)
+            ) %>% 
+            group_by(reason, d) %>% 
+            summarise(
+                cnt = sum(cnt),
+                amount = sum(amount)
+            )
+        if(data_type()== '退款单数'){
+            x <- x %>% select(-amount) %>% spread(d, cnt, fill=0)
+        } else {
+            x <- x %>% select(-cnt) %>% spread(d, amount, fill=0)
+        }
+        x$total = rowSums(x[, -1])
+        x <- x %>% select(reason, total, everything())
+        rownames(x) = x$reason
+        x <- x %>% ungroup() %>% select(-reason)
+        x['total', ] = colSums(x)
+        x
+    })
+    
+    output$tbl <- renderDataTable({
+        datatable(
+            df(),
+            escape = FALSE,
+            rownames = TRUE,
+            selection = 'none',
+            #filter = 'top',
+            extensions = list(FixedColumns = list(leftColumns = 1), Scroller=list()),
+            options = list(
+                autoWidth = TRUE,
+                columnDefs = list(list(width = '200px', targets = c(0))),
+                searching=TRUE,
+                deferRender=TRUE,
+                scrollY=200,
+                scrollX=TRUE,
+                scrollCollapse = TRUE,
+                order = list(list(0, 'asc')),
+                language = list(url = '//cdn.datatables.net/plug-ins/1.10.7/i18n/Chinese.json'),
+                pageLength = 200,
+                lengthChange = FALSE,
+                initComplete = JS("function(settings, json) {$('.dataTables_scrollBody').attr('style', 'overflow: auto; width: 100%;height: '+($(window).height()-210)+'px !important');}"),
+                fnDrawCallback = JS('function (oSettings, json) {oSettings.oScroll.sY = $(window).height()-210;$.each(oSettings.aoColumns, function(index, value){value.asSorting = ["desc", "asc"]})}')
+            )  # options end
+        )
+    })
+}
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 退款报表
+drawbackReportUI <- function(id){
+    ns <- NS(id)
+    
+    tagList(
+        fluidRow(class='toolbar',
+            column(2, radioButtons(ns('data_type'), '数据类型', choices = c('退款单数', '退款金额'), inline = TRUE)),
+            column(2, radioButtons(ns('dt_type'), '日期类型', choices = c('付款日期', '处理日期'), inline = TRUE)),
+            column(3, dateRangeInput(ns('dt'), '日期', start = '2016-03-01', end = '2016-03-31', weekstart = 5, language = 'zh_CN'))
+        ),
+        fluidRow(
+            DT::dataTableOutput(ns('tbl'))
+        )
+    )
+}
+drawbackReport <- function(input, output, session){
+    data_type <- reactive({
+        req(input$data_type)
+        input$data_type
+    })
+    dt_type <- reactive({
+        req(input$dt_type)
+        input$dt_type
+    })
+    dt <- reactive({
+        req(input$dt)
+        input$dt
+    })
+    df <- reactive({
+        sql <- ifelse(
+            dt_type()=='付款日期',
+            paste0("select c.admin_account, substring(b.paydates, 1, 10) as dt, a.amount from tb_porder_drawback a inner join tb_porder b on a.oid=b.oid inner join tb_porder_log c on c.oid=b.oid and c.operation='客服同意退款' where substring(b.paydates, 1, 10) >= '",dt()[1],"' and substring(b.paydates, 1, 10)<='",dt()[2],"' and a.dualstatus=2"),
+            paste0("select c.admin_account, substring(a.dualdates, 1, 10) as dt, a.amount from tb_porder_drawback a inner join tb_porder b on a.oid=b.oid inner join tb_porder_log c on c.oid=b.oid and c.operation='客服同意退款' where substring(b.paydates, 1, 10) >= '",dt()[1],"' and substring(b.paydates, 1, 10)<='",dt()[2],"' and a.dualstatus=2")
+        )
+        x <- dbGetQuery0('ecommerce', sql)
+        x <- x %>% 
+            group_by(admin_account, dt) %>% 
+            summarise(
+                cnt = n(),
+                amount = sum(amount)
+            ) %>% 
+            mutate(
+                d = substr(dt, 6, 10)
+            ) %>% 
+            group_by(admin_account, d) %>% 
+            summarise(
+                cnt = sum(cnt),
+                amount = sum(amount)
+            )
+        if(data_type()== '退款单数'){
+            x <- x %>% select(-amount) %>% spread(d, cnt, fill=0)
+        } else {
+            x <- x %>% select(-cnt) %>% spread(d, amount, fill=0)
+        }
+        x$total = rowSums(x[, -1])
+        x <- x %>% select(admin_account, total, everything())
+        rownames(x) = x$admin_account
+        x <- x %>% ungroup() %>% select(-admin_account)
+        x['total', ] = colSums(x)
+        x
+    })
+    
+    output$tbl <- renderDataTable({
+        datatable(
+            df(),
+            escape = FALSE,
+            rownames = TRUE,
+            selection = 'none',
+            #filter = 'top',
+            extensions = list(FixedColumns = list(leftColumns = 1), Scroller=list()),
+            options = list(
+                autoWidth = TRUE,
+                columnDefs = list(list(width = '200px', targets = c(0))),
+                searching=TRUE,
+                deferRender=TRUE,
+                scrollY=200,
+                scrollX=TRUE,
+                scrollCollapse = TRUE,
+                order = list(list(0, 'asc')),
+                language = list(url = '//cdn.datatables.net/plug-ins/1.10.7/i18n/Chinese.json'),
+                pageLength = 200,
+                lengthChange = FALSE,
+                initComplete = JS("function(settings, json) {$('.dataTables_scrollBody').attr('style', 'overflow: auto; width: 100%;height: '+($(window).height()-210)+'px !important');}"),
+                fnDrawCallback = JS('function (oSettings, json) {oSettings.oScroll.sY = $(window).height()-210;$.each(oSettings.aoColumns, function(index, value){value.asSorting = ["desc", "asc"]})}')
+            )  # options end
+        )
+    })
+}
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 退款明细
+drawbackDetailUI <- function(id){
+    ns <- NS(id)
+    
+    tagList(
+        fluidRow(class='toolbar',
+                 column(2, radioButtons(ns('dt_type'), '日期类型', choices = c('付款日期', '处理日期'), inline = TRUE)),
+                 column(3, dateRangeInput(ns('dt'), '日期', start = '2016-03-01', end = '2016-03-31', weekstart = 5, language = 'zh_CN')),
+                 column(1, downloadButton(ns('btn_export'), '导出', class = 'btn_nowrap'))
+        ),
+        fluidRow(
+            column(12, DT::dataTableOutput(ns('tbl')))
+        )
+    )
+}
+drawbackDetail <- function(input, output, session){
+    dt_type <- reactive({
+        req(input$dt_type)
+        input$dt_type
+    })
+    dt <- reactive({
+        req(input$dt)
+        input$dt
+    })
+    df <- reactive({
+        sql <- ifelse(
+            dt_type()=='付款日期',
+            paste0("select a.merchantname,b.name, cast(b.orderno as char) as orderno, b.batch_oid, b.payname,b.paydates,b.actual_pay, a.applydates,b.ordertype, b.pay_status, d.shop_price, b.del_type_cost,a.reason, a.amount,a.shopdualdates, c.admin_account,c.operation,a.dualdates from tb_porder_drawback a inner join tb_porder b on a.oid=b.oid inner join tb_porder_log c on c.oid=b.oid and c.operation='客服同意退款' inner join tb_porder_line d on d.oid=a.oid where substring(b.paydates, 1, 10) >= '",dt()[1],"' and substring(b.paydates, 1, 10)<='",dt()[2],"' and a.reason not in ('Логистика и распределение проблемы', 'Из Продавцы') and a.dualstatus=2"),
+            paste0("select a.merchantname,b.name, cast(b.orderno as char) as orderno, b.batch_oid, b.payname,b.paydates,b.actual_pay, a.applydates,b.ordertype, b.pay_status, d.shop_price, b.del_type_cost,a.reason, a.amount,a.shopdualdates, c.admin_account,c.operation,a.dualdates from tb_porder_drawback a inner join tb_porder b on a.oid=b.oid inner join tb_porder_log c on c.oid=b.oid and c.operation='客服同意退款' inner join tb_porder_line d on d.oid=a.oid where substring(b.paydates, 1, 10) >= '",dt()[1],"' and substring(b.paydates, 1, 10)<='",dt()[2],"' and a.reason not in ('Логистика и распределение проблемы', 'Из Продавцы') and a.dualstatus=2")
+        )
+        x <- dbGetQuery0('ecommerce', sql)
+        x %>% 
+            mutate(
+                ordertype = c('非处方药','处方药')[ordertype+1],
+                pay_status = c('未支付','已支付')[pay_status+1]
+            ) %>% 
+            select(
+                `商家` = merchantname,
+                `顾客` = name,
+                `订单号` = orderno,
+                `订单批次` = batch_oid,
+                `支付方式` = payname,
+                `支付时间` = paydates,
+                `订单实际支付金额` = actual_pay,
+                `申请退款时间` = applydates,
+                `商品属性` = ordertype,
+                `付款状态` = pay_status,
+                `药品价钱` = shop_price,
+                `运费` = del_type_cost,
+                `退款原因` = reason,
+                `退款金额` = amount,
+                `商家操作时间` = shopdualdates,
+                `客服` = admin_account,
+                `客服操作` = operation,
+                `客服操作时间` = dualdates
+            )
+    })
+    
+    output$tbl <- renderDataTable({
+        datatable(
+            df(),
+            escape = FALSE,
+            rownames = FALSE,
+            selection = 'none',
+            #filter = 'top',
+            extensions = list(FixedColumns = list(leftColumns = 1), Scroller=list()),
+            options = list(
+                autoWidth = TRUE,
+                columnDefs = list(list(width = '200px', targets = c(0))),
+                searching=TRUE,
+                deferRender=TRUE,
+                scrollY=200,
+                scrollX=TRUE,
+                scrollCollapse = TRUE,
+                order = list(list(0, 'asc')),
+                language = list(url = '//cdn.datatables.net/plug-ins/1.10.7/i18n/Chinese.json'),
+                pageLength = 200,
+                lengthChange = FALSE,
+                initComplete = JS("function(settings, json) {$('.dataTables_scrollBody').attr('style', 'overflow: auto; width: 100%;height: '+($(window).height()-210)+'px !important');}"),
+                fnDrawCallback = JS('function (oSettings, json) {oSettings.oScroll.sY = $(window).height()-210;$.each(oSettings.aoColumns, function(index, value){value.asSorting = ["desc", "asc"]})}')
+            )  # options end
+        )
+    })
+    # export
+    output$btn_export <- downloadHandler(paste('bbf-data-drawback-',Sys.Date(),'.csv',sep=''), content = function(file) {
+        if(TRUE){
+            tmp <- df()[input$tbl_rows_all, , drop = FALSE] %>% mutate(`订单号` = paste0('N', `订单号`))
+            write.csv(tmp, file, fileEncoding='gbk',row.names=FALSE)
+        } else {
+            write.csv('无数据下载权限', file, fileEncoding='gbk', row.names = FALSE, col.names = FALSE)
+        }
+        
+    })
+}
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 退款汇总
+drawbackSummaryReportUI <- function(id){
+    ns <- NS(id)
+    
+    tagList(
+        fluidRow(class='toolbar',
+                 #column(2, radioButtons(ns('dt_type'), '日期类型', choices = c('付款日期', '处理日期'), inline = TRUE)),
+                 column(3, dateRangeInput(ns('dt'), '付款日期', start = '2016-03-01', end = '2016-03-31', weekstart = 5, language = 'zh_CN'))
+        ),
+        fluidRow(
+            column(6, DT::dataTableOutput(ns('tbl'))),
+            column(6, dygraphOutput(ns('gg1'), height='200px'),dygraphOutput(ns('gg2'), height='200px'),dygraphOutput(ns('gg3'), height='200px'))
+        )
+    )
+}
+drawbackSummaryReport <- function(input, output, session) {
+    dt <- reactive({
+        req(input$dt)
+        input$dt
+    })
+    df <- reactive({
+        x <- dbGetQuery0('ecommerce', paste0("select c.dt, sum(c.actual_pay) as actual_pay, sum(c.amount) as amount, sum(c.amount)/sum(c.actual_pay) as pct from (select case when a.pay_status = 1 then date_format(a.paydates, '%Y-%m-%d') when a.pay_type = 10002 and a.handle_status not in (5) then date_format(a.post_date_str, '%Y-%m-%d') end dt, a.actual_pay, date_format(b.dualdate, '%Y-%m-%d')  as dual_date, b.amount from tb_porder a left join tb_porder_drawback b on a.oid=b.oid where a.pay_status = 1 or (a.pay_type = 10002 and a.handle_status not in (5))) c where dt>='",dt()[1],"' and dt<='",dt()[2],"' group by c.dt"))
+        rownames(x) <- x$dt
+        x %>% mutate(dt = as.Date(dt))
+        
+    })
+    output$gg1 <- renderDygraph({
+        dygraph(xts(df()$actual_pay/10000, df()$dt), main = '每日业绩/万')
+    })
+    output$gg2 <- renderDygraph({
+        dygraph(xts(df()$amount/10000, df()$dt), main = "退款金额/万")
+    })
+    output$gg3 <- renderDygraph({
+        dygraph(xts(df()$pct*100, df()$dt), main = "退款率%")
+    })
+    output$tbl <- renderDataTable({
+        datatable(
+            df() %>% rename(`每日业绩`=actual_pay, `退款金额`=amount, `退款率`=pct) %>%  select(-dt),
+            escape = FALSE,
+            rownames = FALSE,
+            selection = 'none',
+            #filter = 'top',
+            extensions = list(FixedColumns = list(leftColumns = 1), Scroller=list()),
+            options = list(
+                autoWidth = TRUE,
+                columnDefs = list(list(width = '200px', targets = c(0))),
+                searching=TRUE,
+                deferRender=TRUE,
+                scrollY=200,
+                scrollX=TRUE,
+                scrollCollapse = TRUE,
+                order = list(list(0, 'asc')),
+                language = list(url = '//cdn.datatables.net/plug-ins/1.10.7/i18n/Chinese.json'),
+                pageLength = 200,
+                lengthChange = FALSE,
+                initComplete = JS("function(settings, json) {$('.dataTables_scrollBody').attr('style', 'overflow: auto; width: 100%;height: '+($(window).height()-210)+'px !important');}"),
+                fnDrawCallback = JS('function (oSettings, json) {oSettings.oScroll.sY = $(window).height()-210;$.each(oSettings.aoColumns, function(index, value){value.asSorting = ["desc", "asc"]})}')
+            )  # options end
+        ) %>% 
+            formatPercentage(c('退款率'), 2) %>% 
+            formatRound(c('每日业绩', '退款金额'), 2)
+    })
+}
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 商品退款分析
+productDrawbackUI <- function(id) {
+    ns <- NS(id)
+    
+    tagList(
+        fluidRow(
+            class='toolbar',
+            column(2, dateRangeInput(ns('dt'), '付款时间', start = Sys.Date()-8, end = Sys.Date()-1)),
+            column(1, downloadButton(ns('btn_export'), '导出', class = 'btn_nowrap'))
+        ),
+        fluidRow(
+            column(8, DT::dataTableOutput(ns('tbl'))),
+            column(4, DT::dataTableOutput(ns('tbl2')))
+        )
+    )
+}
+productDrawback <- function(input, output, session) {
+    dt <- reactive({
+        req(input$dt)
+        input$dt
+    })
+    
+    df0 <- reactive({
+        dbGetQuery0('ecommerce', paste0("select * from (select e.name,a.orderno,b.reason,case when a.pay_status = 1 then date_format(a.paydates, '%Y-%m-%d') when a.pay_type = 10002 and a.handle_status not in (5) then date_format(a.post_date_str, '%Y-%m-%d') end dt, a.actual_pay, IFNULL(b.amount,0) as amount, case when b.amount is null then 0  else 1 end cnt_db from tb_porder_line e left join tb_porder a on e.oid=a.oid left join (select * from tb_porder_drawback d where d.dualstatus not in (3, 4)) b on a.oid=b.oid where a.pay_status = 1 or (a.pay_type = 10002 and a.handle_status not in (5))) c where c.dt>='",dt()[1],"' and c.dt<='",dt()[2],"'")) %>% 
+            mutate(name = substr(name, 1, 20))
+    })
+    df <- reactive({
+        df0() %>% 
+            group_by(name) %>% 
+            summarise(
+                actual_pay = sum(actual_pay, na.rm=TRUE),
+                amount = sum(amount, na.rm=TRUE),
+                pct = amount / actual_pay,
+                cnt = n_distinct(orderno),
+                cnt_db = sum(cnt_db, na.rm=TRUE),
+                pct_db = cnt_db / cnt
+            ) %>% 
+            arrange(desc(cnt)) %>% 
+            select(`商品`=name, `成交金额`=actual_pay, `退款金额`=amount, `金额退款率`=pct, `成交订单数`=cnt, `退款订单数`=cnt_db, `订单数退款率` = pct_db)
+    })
+    df2 <- reactive({
+        df0() %>% 
+            filter(name==df()$`商品`[ifelse(is.null(input$tbl_rows_selected), 1, input$tbl_rows_selected)], amount>0) %>% 
+            group_by(reason) %>% 
+            summarise(cnt = n()) %>% 
+            select(`退款原因`=reason, `订单数`=cnt)
+    })
+    output$tbl <- DT::renderDataTable({
+        datatable(
+            df(),
+            escape = FALSE,
+            rownames = FALSE,
+            selection = list(mode = 'single', selected = c(1)),
+            extensions = list(Scroller=list()),
+            options = list(
+                autoWidth = TRUE,
+                searching=TRUE,
+                deferRender=TRUE,
+                scrollY=200,
+                scrollCollapse = TRUE,
+                order = list(list(4, 'desc')),
+                language = list(url = '//cdn.datatables.net/plug-ins/1.10.7/i18n/Chinese.json'),
+                pageLength = 200,
+                lengthChange = FALSE,
+                initComplete = JS("function(settings, json) {$('.dataTables_scrollBody').attr('style', 'overflow: auto; width: 100%;height: '+($(window).height()-220)+'px !important');}"),
+                fnDrawCallback = JS('function (oSettings, json) {oSettings.oScroll.sY = $(window).height()-220;$.each(oSettings.aoColumns, function(index, value){value.asSorting = ["desc", "asc"]})}')
+            )
+        ) %>% formatPercentage(c('金额退款率', '订单数退款率'), 2) %>% formatRound(c('成交金额', '退款金额'), 2)
+    })
+    
+    output$tbl2 <- DT::renderDataTable({
+        datatable(
+            df2(),
+            escape = FALSE,
+            rownames = FALSE,
+            selection = 'none',
+            extensions = list(Scroller=list()),
+            options = list(
+                autoWidth = TRUE,
+                searching = TRUE,
+                deferRender = TRUE,
+                scrollY=200,
+                scrollCollapse = TRUE,
+                order = list(list(1, 'desc')),
+                language = list(url = '//cdn.datatables.net/plug-ins/1.10.7/i18n/Chinese.json'),
+                pageLength = 200,
+                lengthChange = FALSE,
+                initComplete = JS("function(settings, json) {$('.dataTables_scrollBody').attr('style', 'overflow: auto; width: 100%;height: '+($(window).height()-220)+'px !important');}"),
+                fnDrawCallback = JS('function (oSettings, json) {oSettings.oScroll.sY = $(window).height()-220;$.each(oSettings.aoColumns, function(index, value){value.asSorting = ["desc", "asc"]})}')
+            )
+        )
+    })
+    
+    output$btn_export <- downloadHandler(paste('bbf-data-shop-drawback-',Sys.Date(),'.csv',sep=''), content = function(file) {
+        if(TRUE){
+            tmp <- df()[input$tbl_rows_all, , drop = FALSE]
+            write.csv(tmp, file, fileEncoding='gbk',row.names=FALSE)
+        } else {
+            write.csv('无数据下载权限', file, fileEncoding='gbk', row.names = FALSE, col.names = FALSE)
+        }
+    })
+    
+}
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 店铺退款分析
+shopDrawbackUI <- function(id) {
+    ns <- NS(id)
+    
+    tagList(
+        fluidRow(
+            class='toolbar',
+            column(2, dateRangeInput(ns('dt'), '付款时间', start = Sys.Date()-8, end = Sys.Date()-1)),
+            column(1, downloadButton(ns('btn_export'), '导出', class = 'btn_nowrap'))
+        ),
+        fluidRow(
+            column(8, DT::dataTableOutput(ns('tbl'))),
+            column(4, DT::dataTableOutput(ns('tbl2')))
+        )
+    )
+}
+shopDrawback <- function(input, output, session) {
+    dt <- reactive({
+        req(input$dt)
+        input$dt
+    })
+    
+    df0 <- reactive({
+        dbGetQuery0('ecommerce', paste0("select * from (select a.merchant_name,a.orderno,b.reason,case when a.pay_status = 1 then date_format(a.paydates, '%Y-%m-%d') when a.pay_type = 10002 and a.handle_status not in (5) then date_format(a.post_date_str, '%Y-%m-%d') end dt, a.actual_pay, IFNULL(b.amount,0) as amount, case when b.amount is null then 0  else 1 end cnt_db from tb_porder a left join (select * from tb_porder_drawback d where d.dualstatus not in (3, 4)) b on a.oid=b.oid where a.pay_status = 1 or (a.pay_type = 10002 and a.handle_status not in (5))) c where c.dt>='",dt()[1],"' and c.dt<='",dt()[2],"'"))
+    })
+    df <- reactive({
+        df0() %>% 
+            group_by(merchant_name) %>% 
+            summarise(
+                actual_pay = sum(actual_pay, na.rm=TRUE),
+                amount = sum(amount, na.rm=TRUE),
+                pct = amount / actual_pay,
+                cnt = n_distinct(orderno),
+                cnt_db = sum(cnt_db, na.rm=TRUE),
+                pct_db = cnt_db / cnt
+            ) %>% 
+            arrange(desc(cnt)) %>% 
+            select(`商家`=merchant_name, `成交金额`=actual_pay, `退款金额`=amount, `金额退款率`=pct, `成交订单数`=cnt, `退款订单数`=cnt_db, `订单数退款率` = pct_db)
+    })
+    df2 <- reactive({
+        merchant <- df()$`商家`[ifelse(is.null(input$tbl_rows_selected), 1, input$tbl_rows_selected)]
+        df0() %>% 
+            filter(merchant_name==merchant, amount>0) %>% 
+            group_by(reason) %>% 
+            summarise(cnt = n()) %>% 
+            select(`退款原因`=reason, `订单数`=cnt)
+    })
+    output$tbl <- DT::renderDataTable({
+        datatable(
+            df(),
+            escape = FALSE,
+            rownames = FALSE,
+            selection = list(mode = 'single', selected = c(1)),
+            extensions = list(Scroller=list()),
+            options = list(
+                autoWidth = TRUE,
+                searching=TRUE,
+                deferRender=TRUE,
+                scrollY=200,
+                scrollCollapse = TRUE,
+                order = list(list(4, 'desc')),
+                language = list(url = '//cdn.datatables.net/plug-ins/1.10.7/i18n/Chinese.json'),
+                pageLength = 200,
+                lengthChange = FALSE,
+                initComplete = JS("function(settings, json) {$('.dataTables_scrollBody').attr('style', 'overflow: auto; width: 100%;height: '+($(window).height()-220)+'px !important');}"),
+                fnDrawCallback = JS('function (oSettings, json) {oSettings.oScroll.sY = $(window).height()-220;$.each(oSettings.aoColumns, function(index, value){value.asSorting = ["desc", "asc"]})}')
+            )
+        ) %>% formatPercentage(c('金额退款率', '订单数退款率'), 2) %>% formatRound(c('成交金额', '退款金额'), 2)
+    })
+    
+    output$tbl2 <- DT::renderDataTable({
+        datatable(
+            df2(),
+            escape = FALSE,
+            rownames = FALSE,
+            selection = 'none',
+            extensions = list(Scroller=list()),
+            options = list(
+                autoWidth = TRUE,
+                searching = TRUE,
+                deferRender = TRUE,
+                scrollY=200,
+                scrollCollapse = TRUE,
+                order = list(list(1, 'desc')),
+                language = list(url = '//cdn.datatables.net/plug-ins/1.10.7/i18n/Chinese.json'),
+                pageLength = 200,
+                lengthChange = FALSE,
+                initComplete = JS("function(settings, json) {$('.dataTables_scrollBody').attr('style', 'overflow: auto; width: 100%;height: '+($(window).height()-220)+'px !important');}"),
+                fnDrawCallback = JS('function (oSettings, json) {oSettings.oScroll.sY = $(window).height()-220;$.each(oSettings.aoColumns, function(index, value){value.asSorting = ["desc", "asc"]})}')
+            )
+        )
+    })
+    
+    output$btn_export <- downloadHandler(paste('bbf-data-shop-drawback-',Sys.Date(),'.csv',sep=''), content = function(file) {
+        if(TRUE){
+            tmp <- df()[input$tbl_rows_all, , drop = FALSE] %>% mutate(`金额退款率`=paste0(round(`金额退款率`*100,2), '%'), `订单数退款率`=paste0(round(`订单数退款率`*100,2), '%'))
+            write.csv(tmp, file, fileEncoding='gbk',row.names=FALSE)
+        } else {
+            write.csv('无数据下载权限', file, fileEncoding='gbk', row.names = FALSE, col.names = FALSE)
+        }
+    })
+    
+}
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 优惠券订单
+couponOrderUI <- function(id){
+    ns <- NS(id)
+    
+    tagList(
+        fluidRow(class='toolbar',
+                 column(3, dateRangeInput(ns('dt'), '下单时间', start = Sys.Date()-30, end = Sys.Date())),
+                 column(2, textInput(ns('kw'), '优惠券关键字', value = 'newcustomers', placeholder = 'newcustomers')),
+                 column(2, selectInput(ns('pn'), '支付', choices = c('全部', '货到付款', '在线支付', '未付款'), selected = '全部')),
+                 column(2, selectInput(ns('ib'), '订单来源', choices = c('全部', '前台订单','电话订单','在线订单','移动网站', '店讯通App订单','增值回访订单'), selected = '全部')),
+                 column(1, downloadButton(ns('btn_export'), '导出', class = 'btn_nowrap'))
+        ),
+        fluidRow(
+            DT::dataTableOutput(ns('tbl'))
+        )
+    )
+}
+couponOrder <- function(input, output, session){
+    kw <- reactive({
+        req(input$kw)
+        input$kw
+    })
+    dt <- reactive({
+        req(input$dt)
+        input$dt
+    })
+    pn <- reactive({
+        req(input$pn)
+        if (input$pn=='全部') {
+            c('货到付款', '在线支付', '未付款')
+        } else {
+            input$pn
+        }
+    })
+    ib <- reactive({
+        req(input$ib)
+        if (input$ib=='全部') {
+            c('前台订单', '电话订单', '在线订单', '移动网站', '店讯通App订单', '增值回访订单')
+        } else {
+            input$ib
+        }
+    })
+    df <- reactive({
+        sql <- paste0("select post_date_str, cast(orderno as char) as orderno, actual_pay,couponamount,couponcode,name,adminaccount,case when isback=0 then '前台订单' when isback=1 then '电话订单' when isback=2 then '在线订单' when isback=3 then '移动网站' when isback=4 then '店讯通App订单' when isback=5 then '增值回访订单' end as isback,case when payname is null then '未付款' when payname='货到付款' then '货到付款' else '在线支付' end as payname,merchant_name from tb_porder where couponcode like '%",kw(),"%' AND post_date_str>='",dt()[1],"' AND post_date_str<='",dt()[2],"'")
+        x <- dbGetQuery0('ecommerce', sql) %>% 
+            filter(payname %in% pn(), isback %in% ib()) %>% 
+            select(`订单编号`=orderno, `下单时间`=post_date_str, `实际支付金额`=actual_pay, `优惠券金额`=couponamount, `支付方式`=payname, `订单来源`=isback, `商家`=merchant_name, `收货人`=name, `客服`=adminaccount, `优惠券代码`=couponcode)
+        x %>% add_row(
+            `订单编号` = '合计',
+            `下单时间` = '',
+            `实际支付金额` = sum(x$`实际支付金额`, na.rm=TRUE),
+            `支付方式` = '',
+            `订单来源`= '',
+            `商家` = '',
+            `收货人` = '',
+            `客服` = '',
+            `优惠券金额` = sum(x$`优惠券金额`, na.rm=TRUE),
+            `优惠券代码` = ''
+        )
+    })
+    output$tbl <- DT::renderDataTable({
+        datatable(
+            df(),
+            escape = FALSE,
+            rownames = FALSE,
+            selection = 'none',
+            #filter = 'top',
+            extensions = list(FixedColumns = list(leftColumns = 1), Scroller=list()),
+            options = list(
+                autoWidth = TRUE,
+                columnDefs = list(list(width = '200px', targets = c(0))),
+                searching=TRUE,
+                deferRender=TRUE,
+                scrollY=200,
+                scrollX=TRUE,
+                scrollCollapse = TRUE,
+                order = list(list(1, 'desc')),
+                language = list(url = '//cdn.datatables.net/plug-ins/1.10.7/i18n/Chinese.json'),
+                pageLength = 200,
+                lengthChange = FALSE,
+                initComplete = JS("function(settings, json) {$('.dataTables_scrollBody').attr('style', 'overflow: auto; width: 100%;height: '+($(window).height()-220)+'px !important');}"),
+                fnDrawCallback = JS('function (oSettings, json) {oSettings.oScroll.sY = $(window).height()-220;$.each(oSettings.aoColumns, function(index, value){value.asSorting = ["desc", "asc"]})}')
+            )
+        ) %>% formatRound(c('实际支付金额'), 2)
+    })
+    
+    output$btn_export <- downloadHandler(paste('bbf-data-coupon-',Sys.Date(),'.csv',sep=''), content = function(file) {
+        if(TRUE){
+            tmp <- df()[input$tbl_rows_all, , drop = FALSE] %>% mutate(`订单编号`=paste0(as.character(`订单编号`), '\t'))
+            write.csv(tmp, file, fileEncoding='gbk',row.names=FALSE)
+        } else {
+            write.csv('无数据下载权限', file, fileEncoding='gbk', row.names = FALSE, col.names = FALSE)
+        }
+    })
+}
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 密码
+resetPasswordUI <- function(id) {
+    ns <- NS(id)
+    
+    tagList(
+        h3('修改密码'),
+        textInput(ns('old_pwd'), '原密码', value = ''),
+        textInput(ns('new_pwd'), '新密码', value = ''),
+        actionButton(ns('btn_reset_password'), '修 改', icon=icon('refresh'))
+    )
+}
+resetPassword <- function(input, output, session, username) {
+    old_pwd <- reactive({
+        req(input$old_pwd)
+        input$old_pwd
+    })
+    new_pwd <- reactive({
+        req(input$new_pwd)
+        input$new_pwd
+    })
+    observeEvent(input$btn_reset_password, {
+        password <- as.character(isolate(input$old_pwd))
+        user <- dbGetQuery0('bbf_shiny', paste0("SELECT * FROM bbf_user WHERE status=1 AND username='",username,"' AND password='",digest::digest(paste0(username, password),'md5'),"'"))
+        if (nrow(user) == 1){
+            dbGetQuery0('bbf_shiny', paste0("update bbf_user set password='",digest::digest(paste0(username, new_pwd()),'md5'),"' where username='", username,"'"))
+            info('密码修改成功')
+            reset('old_pwd')
+            reset('new_pwd')
+        } else {
+            info('原密码不匹配')
+        }
+    })
+}
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 客服表
+kefuTableUI <- function(id) {
+    ns <- NS(id)
+    
+    fluidPage(
+        column(
+            4,
+            titlePanel("客服表"),
+            helpText(icon('warning'), br(), '1. 删除记录会导致数据统计不准确', br(), '2. 该表是其它报表的基础依赖表请谨慎更新'),
+            div(
+                actionButton(ns("btn_save"), "保 存", icon = icon('save')),
+                actionButton(ns("btn_reload"), "刷 新", icon = icon('refresh'))
+            )
+        ),
+        column(
+            4,
+            rHandsontableOutput(ns("hot"))
+        )
+    )
+}
+kefuTable <- function(input, output, session) {
+    values = list()
+    setHot = function(x) {
+        values[["hot"]] <<- x
+    }
+    
+    observeEvent(input$btn_save, {
+        if (!is.null(values[["hot"]])) {
+            dbGetQuery0('bbf_shiny', "delete from bbf_stuff")
+            dbWriteTable0('bbf_shiny', 'bbf_stuff', values[["hot"]])
+            info('更新完成')
+        }
+    })
+    observeEvent(input$btn_reload, {
+        reset(('hot'))
+    })
+    output$hot = renderRHandsontable({
+        if (!is.null(input$hot)) {
+            df = hot_to_r(input$hot)
+        } else {
+            df = dbGetQuery0('bbf_shiny', 'select * from bbf_stuff order by dept, team, stuff_id') %>% arrange(dept)
+        }
+        
+        setHot(df)
+        rhandsontable(df) %>%
+            hot_table(highlightCol = TRUE, highlightRow = TRUE)
+    })
+}
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 菜单表
+menuTableUI <- function(id) {
+    ns <- NS(id)
+    
+    fluidPage(
+        column(
+            4,
+            titlePanel("菜单表"),
+            helpText(icon('warning'), br(), '1. 此表由开发更新', br(), '2. 菜单名更新会导致菜单无法访问'),
+            div(
+                actionButton(ns("btn_save"), "保 存", icon = icon('save')),
+                actionButton(ns("btn_reload"), "刷 新", icon = icon('refresh'))
+            )
+        ),
+        column(
+            8,
+            rHandsontableOutput(ns("hot"))
+        )
+    )
+}
+menuTable <- function(input, output, session) {
+    values = list()
+    setHot = function(x) {
+        values[["hot"]] <<- x
+    }
+
+    observeEvent(input$btn_save, {
+        if (!is.null(values[["hot"]])) {
+            dbGetQuery0('bbf_shiny', "delete from bbf_menu")
+            dbWriteTable0('bbf_shiny', 'bbf_menu', values[["hot"]])
+            info('更新完成')
+        }
+    })
+    observeEvent(input$btn_reload, {
+        reset(('hot'))
+    })
+    output$hot = renderRHandsontable({
+        if (!is.null(input$hot)) {
+            df = hot_to_r(input$hot)
+        } else {
+            df = dbReadTable0('bbf_shiny', 'bbf_menu') %>% arrange(menu1)
+        }
+        
+        setHot(df)
+        rhandsontable(df) %>%
+            hot_table(highlightCol = TRUE, highlightRow = TRUE)
+    })
+}
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 帐号表
+userTableUI <- function(id) {
+    ns <- NS(id)
+    
+    fluidPage(
+        column(
+            4,
+            titlePanel("账号表"),
+            helpText(icon('warning'), br(), '1. 此表由开发更新', br(), ''),
+            div(
+                actionButton(ns("btn_save"), "保 存", icon = icon('save')),
+                actionButton(ns("btn_reload"), "刷 新", icon = icon('refresh'))
+            )
+        ),
+        column(
+            8,
+            rHandsontableOutput(ns("hot"))
+        )
+    )
+}
+userTable <- function(input, output, session) {
+    values = list()
+    setHot = function(x) {
+        values[["hot"]] <<- x
+    }
+    
+    observeEvent(input$btn_save, {
+        if (!is.null(values[["hot"]])) {
+            dbGetQuery0('bbf_shiny', "delete from bbf_user")
+            dbWriteTable0('bbf_shiny', 'bbf_user', values[["hot"]])
+            info('更新完成')
+        }
+    })
+    observeEvent(input$btn_reload, {
+        reset(('hot'))
+    })
+    
+    output$hot = renderRHandsontable({
+        if (!is.null(input$hot)) {
+            df = hot_to_r(input$hot)
+        } else {
+            df = dbReadTable0('bbf_shiny', 'bbf_user')
+        }
+        
+        setHot(df)
+        rhandsontable(df) %>%
+            hot_table(highlightCol = TRUE, highlightRow = TRUE)
+    })
+}
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# SQL
+sqlUI <- function(id) {
+    ns <- NS(id)
+    
+    tagList(
+        textInput(ns('sql'), '', width = '600px'),
+        br(),
+        actionButton(ns('btn_run'), 'run')
+    )
+}
+sql <- function(input, output, sesswion) {
+    sql <- reactive({
+        req(input$sql)
+        input$sql
+    })
+    
+    observeEvent(input$btn_run, {
+        info('task start')
+        x = dbGetQuery0('ecommerce', sql())
+        filename <- rnorm(1)
+        readr::write_csv(x, paste0('/tmp/', filename, '.csv'))
+        info(paste0(filename, '.csv done'))
+        reset('btn_run')
+    })
+}
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 外呼任务
+ccExportlUI <- function(id) {
+    ns <- NS(id)
+    ctitle <- dbGetQuery0('ecommerce', 'select distinct ctitle1 as ctitle from tb_product_catalogbase where ctitle1 is not null')
+    tagList(
+        fluidRow(class='toolbar',
+                 column(2, dateRangeInput(ns('dt'), '付款时间', start = '2015-01-01', end = Sys.Date()-1)),
+                 column(5, selectInput(ns('ctitle'), '科目', choices = ctitle$ctitle, multiple = TRUE, selected = '男科用药')),
+                 column(5, 
+                        actionButton(ns('btn_query'), '查询', class='btn_nowrap'),
+                        downloadButton(ns('btn_export'), '导出', class = 'btn_nowrap'),
+                        actionButton(ns('btn_tips'), '任务生成涉及多表关联查询, 耗时会长达数分钟.', class='btn_nowrap', disabled='disabled')
+                )
+        ),
+        fluidRow(
+            DT::dataTableOutput(ns('tbl'))
+        )
+    )
+}
+ccExport <- function(input, output, session) {
+    ctitle <- reactive({
+        req(input$ctitle)
+        paste("'", strsplit(input$ctitle, ' ')[[1]],"'", collapse = ",", sep='')
+    })
+
+    dt <- reactive({
+        req(input$dt)
+        input$dt
+    })
+    
+    observeEvent(input$btn_query, {
+        disable('btn_query')
+        disable('btn_export')
+        html('btn_tips', '查询中...请稍等')
+        sql <- paste0("SELECT 
+                        distinct o.mid,
+                      trim(replace(replace(replace(o.NAME, char(13), ''),    char(10)  ,'') ,',' , '')) NAME,
+                      replace(replace(ifnull(o.mobile, o.linkmobile), char(13), ''), char(10)  ,'') AS xiadanren,
+                      CASE m.sex WHEN 0 THEN '男' WHEN 1 THEN '女' ELSE	'未知'END AS sex1,
+                      m.birthday,
+                      replace(replace(replace( ifnull(o.linkman, o.NAME) , char(13), ''), char(10) ,''), ',' ,'') AS shouhuoren,
+                      replace(replace(ifnull(o.linkmobile, o.mobile) ,char(13), ''), char(10), '') shouhuoshouji,
+                      replace(replace(o.PROVINCE_NAME, char(13), ''), char(10)  ,'') PROVINCE_NAME,
+                      replace(replace(o.city_name, char(13), ''), char(10)  ,'') city_name, 
+                      replace(replace(replace(o.address, char(13), ''), char(10), ''), ',', '') address,
+                      replace(replace(y.product_name1 , char(13), ''), char(10), '') product_name1, 
+                      y.ord_cnts,
+                      y.SUM_PRICE,
+                      CASE 
+                      WHEN IFNULL(y.SCORETOTAL,0) BETWEEN 0 and 2000 THEN	'普通会员'
+                      WHEN IFNULL(y.SCORETOTAL,0) BETWEEN 2001 and  10000 THEN '铜牌会员'
+                      WHEN IFNULL(y.SCORETOTAL,0) BETWEEN 10001 and 50000 THEN '银牌会员'
+                      WHEN IFNULL(y.SCORETOTAL,0) BETWEEN 50001 and 100000 THEN '金牌会员'
+                      else '钻石会员' END AS account_level,
+                      y.SCORETOTAL,
+                      y.bpc_name,
+                      y.last_buy_date 
+                      FROM
+                      (SELECT
+                      mid,
+                      max(NAME) NAME,
+                      max(mobile) mobile,
+                      max(linkmobile) linkmobile,
+                      max(linkman) linkman,
+                      max(PROVINCE_NAME) PROVINCE_NAME ,
+                      max(city_name) city_name ,
+                      max(address) address	 
+                      from tb_porder 
+                      group by mid)
+                      o
+                      JOIN tb_member m ON o.mid = m.mid 
+                      join 
+                      (
+                      select 
+                      p.MID , 
+                      count(distinct p.oid ) ord_cnts ,
+                      sum(line.AMOUNT) SUM_PRICE,
+                      max(p.pay_date) last_buy_date,
+                      sum(sc.SCORETOTAL)  SCORETOTAL ,
+                      GROUP_CONCAT(DISTINCT line.name SEPARATOR '&') as product_name1,
+                      GROUP_CONCAT(DISTINCT LINE.bpcname SEPARATOR '&') as bpc_name
+                      from 
+                      (
+                      SELECT oid , MID ,PAY_STATUS ,PAY_TYPE ,HANDLE_STATUS ,
+                      case
+                      when  PAY_STATUS = 1 then DATE_FORMAT(payDates,'%Y-%m-%d')
+                      when PAY_TYPE = 10002 AND HANDLE_STATUS != 5 then DATE_FORMAT(post_date_str,'%Y-%m-%d')
+                      end pay_date
+                      from  tb_porder
+                      ) p 
+                      join (select * from tb_porder_line a) line on p.oid = line.oid 
+                      join (select * from TB_PRODUCT_CATALOGBASE tbp where tbp.ctitle1 in (",ctitle(),")) tbp1 on tbp1.pid=line.pid 
+                      left join tb_member_score sc 
+                      on p.MID = sc.mid 
+                      WHERE 1 = 1 
+                      and p.pay_date >='",dt()[1],"'
+                      and p.pay_date <='",dt()[2],"'
+                      and ( PAY_STATUS = 1
+                      OR  ( PAY_TYPE = 10002
+                      AND HANDLE_STATUS != 5
+                      )
+                      )
+                      group  by p.MID  ) y 
+                      on o.mid = y.MID
+                      order by y.last_buy_date")
+        df <- dbGetQuery0('ecommerce', sql) %>% 
+            select(
+                `会员MID` = mid,
+                `下单人姓名` = NAME,
+                `下单人电话` = xiadanren,
+                `下单人性别` = sex1,
+                `下单人年龄` = birthday,
+                `收货人姓名` = shouhuoren,
+                `收货人电话` = shouhuoshouji,
+                `收货人省份` = PROVINCE_NAME,
+                `收货人市区` = city_name,
+                `收货人详细地址` = address,
+                `商品名称` = product_name1,
+                `累记购买次数` = ord_cnts,
+                `累积购买金额` = SUM_PRICE,
+                `会员等级` = account_level,
+                `累计积分` = SCORETOTAL,
+                `科别` = bpc_name,
+                `最后购买时间` = last_buy_date
+            )
+        output$tbl <- DT::renderDataTable({
+            datatable(
+                df,
+                escape = FALSE,
+                rownames = FALSE,
+                selection = 'none',
+                #filter = 'top',
+                extensions = list(FixedColumns = list(leftColumns = 1), Scroller=list()),
+                options = list(
+                    autoWidth = TRUE,
+                    columnDefs = list(list(width = '200px', targets = c(0))),
+                    searching=TRUE,
+                    deferRender=TRUE,
+                    scrollY=200,
+                    scrollX=TRUE,
+                    scrollCollapse = TRUE,
+                    order = list(list(1, 'desc')),
+                    language = list(url = '//cdn.datatables.net/plug-ins/1.10.7/i18n/Chinese.json'),
+                    pageLength = 200,
+                    lengthChange = FALSE,
+                    initComplete = JS("function(settings, json) {$('.dataTables_scrollBody').attr('style', 'overflow: auto; width: 100%;height: '+($(window).height()-220)+'px !important');}"),
+                    fnDrawCallback = JS('function (oSettings, json) {oSettings.oScroll.sY = $(window).height()-220;$.each(oSettings.aoColumns, function(index, value){value.asSorting = ["desc", "asc"]})}')
+                )
+            )
+        })
+        html('btn_tips', paste0('任务生成完成, 可下载数据量为', nrow(df)))
+        enable('btn_query')
+        enable('btn_export')
+    })
+    
+    # export
+    output$btn_export <- downloadHandler(paste('bbf-data-callcenter-',Sys.Date(),'.csv',sep=''), content = function(file) {
+        if(TRUE){
+            tmp <- df()[input$tbl_rows_all, , drop = FALSE]
+            write.csv(tmp, file, fileEncoding='gbk',row.names=FALSE)
+        } else {
+            write.csv('无数据下载权限', file, fileEncoding='gbk', row.names = FALSE, col.names = FALSE)
+        }
+        
+    })
+}
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 热卖商品
+topProductUI <- function(id) {
+    ns <- NS(id)
+    
+    tagList(
+        fluidRow(class='toolbar',
+                 column(2, dateRangeInput(ns('dt'), '付款时间', start = Sys.Date()-months(1)-1, end = Sys.Date()-1)),
+                 column(2, downloadButton(ns('btn_export'), '导出商品汇总表', class = 'btn_nowrap')),
+                 column(2, downloadButton(ns('btn_export_detail'), '导出所选商品的订单明细', class = 'btn_nowrap'))
+        ),
+        fluidRow(
+            DT::dataTableOutput(ns('tbl'))
+        )
+    )
+}
+topProduct <- function(input, output, session) {
+    dt <- reactive({
+        req(input$dt)
+        input$dt
+    })
+    
+    df <- reactive({
+        dbGetQuery0('ecommerce', paste0("select a.pid,a.name,a.proname,c.ctitle0,c.ctitle1,c.ctitle2,a.quantity, a.amount, a.guige, a.bcbilv, a.commission,b.account,b.name as sh_name, b.mobile as sh_mobile, b.linkman as xd_name, b.linkmobile as xd_mobile, b.province_name,b.city_name, b.address, b.post_date_str from tb_porder_line a inner join tb_porder b on a.oid = b.oid inner join tb_product_catalogbase c on c.pid=a.pid where b.post_date_str>='",dt()[1],"' and post_date_str<='",dt()[2],"'"))
+    })
+    df2 <- reactive({
+        x <- df() %>% 
+            group_by(name) %>% 
+            summarise(
+                proname = max(proname),
+                pcnt = n_distinct(pid),
+                ctitle0 = max(ctitle0),
+                ctitle1 = max(ctitle1),
+                ctitle2 = max(ctitle2),
+                quantity = sum(quantity),
+                amount = sum(amount),
+                guige = max(guige),
+                bcbilv = max(bcbilv),
+                commission = sum(commission),
+                account = n_distinct(account)
+            ) %>% 
+            arrange(desc(quantity,amount)) %>% 
+            ungroup() %>% 
+            mutate(name=ifelse(nchar(proname)==0, name, paste(name, proname, sep=' / '))) %>% 
+            select(
+                `商品名称/通用名称` = name,
+                `商品个数` = pcnt,
+                `一级分类` = ctitle0,
+                `二级分类` = ctitle1,
+                `三级分类` = ctitle2,
+                `购买人数(排重)` = account,
+                `销售量` = quantity,
+                `销售额` = amount,
+                `规格` = guige,
+                `分成比率` = bcbilv,
+                `分成总额` = commission
+            )
+        # x %>% add_row(
+        #     `商品名称/通用名称` = '合计',
+        #     `商品个数` = sum(x$`商品个数`, na.rm=TRUE),
+        #     `一级分类` = '',
+        #     `二级分类` = '',
+        #     `三级分类` = '',
+        #     `购买人数(排重)` = sum(x$`购买人数(排重)`, na.rm=TRUE),
+        #     `销售量` = sum(x$`销售量`, na.rm=TRUE),
+        #     `销售额` = sum(x$`销售额`, na.rm=TRUE),
+        #     `规格` = '',
+        #     `分成比率` = '',
+        #     `分成总额` = ''
+        # )
+    })
+    # export
+    output$btn_export <- downloadHandler(paste('bbf-data-callcenter-',Sys.Date(),'.csv',sep=''), content = function(file) {
+        if(TRUE){
+            tmp <- df2()[input$tbl_rows_all, , drop = FALSE]
+            write.csv(tmp, file, fileEncoding='gbk',row.names=FALSE)
+        } else {
+            write.csv('无数据下载权限', file, fileEncoding='gbk', row.names=FALSE, col.names=FALSE)
+        }
+        
+    })
+    # export detail
+    output$btn_export_detail <- downloadHandler(paste('bbf-data-order-',Sys.Date(),'.csv',sep=''), content = function(file) {
+        if(TRUE){
+            r = ifelse(is.null(input$tbl_rows_selected), 1, input$tbl_rows_selected)
+            p <- df2()[r, , drop = FALSE]$`商品名称/通用名称`
+            p <- strsplit(p, ' / ') %>% unlist()
+            tmp <- df() %>% filter(name %in% p) %>% select(`下单姓名`=xd_name, `下单电话`=xd_mobile, `收货姓名`=sh_name, `收货电话`=sh_mobile, `省份`=province_name,`城市`=city_name,`地址`=address, `下单时间`=post_date_str, `商品`=name, `订单金额`=amount)
+            write.csv(tmp, file, fileEncoding='gbk',row.names=FALSE)
+        } else {
+            write.csv('无数据下载权限', file, fileEncoding='gbk', row.names=FALSE, col.names=FALSE)
+        }
+        
+    })
+    output$tbl <- DT::renderDataTable({
+        datatable(
+            df2(),
+            escape = FALSE,
+            rownames = FALSE,
+            selection = 'multiple',
+            #extensions = list(FixedColumns = list(leftColumns = 1), Scroller=list()),
+            extensions = list(Scroller=list()),
+            options = list(
+                autoWidth = TRUE,
+                columnDefs = list(list(width = '120px', targets = c(0))),
+                searching=TRUE,
+                deferRender=TRUE,
+                scrollY=200,
+                scrollX=TRUE,
+                scrollCollapse = TRUE,
+                order = list(list(5, 'desc')),
+                language = list(url = '//cdn.datatables.net/plug-ins/1.10.7/i18n/Chinese.json'),
+                pageLength = 200,
+                lengthChange = FALSE,
+                initComplete = JS("function(settings, json) {$('.dataTables_scrollBody').attr('style', 'overflow: auto; width: 100%;height: '+($(window).height()-200)+'px !important');}"),
+                fnDrawCallback = JS('function (oSettings, json) {oSettings.oScroll.sY = $(window).height()-200;$.each(oSettings.aoColumns, function(index, value){value.asSorting = ["desc", "asc"]})}')
+            )
+        )
+    })
+}
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 类目复购
+cateRebuyUI <- function(id){
+    ns <- NS(id)
+    # cate_ <- dbGetQuery0('ecommerce', "select distinct ctitle1 from tb_product_catalogbase")
+    tagList(
+        fluidRow(class='toolbar',
+                 column(2, dateRangeInput(ns('dt'), '付款时间', start = Sys.Date()-months(1)-1, end = Sys.Date()-1))
+        ),
+        fluidRow(
+            DT::dataTableOutput(ns('tbl'))
+        )
+    )
+}
+cateRebuy <- function(input, output, session) {
+    dt <- reactive({
+        req(input$dt)
+        input$dt
+    })
+    
+    cate <- reactive({
+        req(input$cate)
+        input$cate
+    })
+    df <- reactive({
+        sql <- paste0("select b.mid,c.ctitle1, c.ctitle2, substring(b.post_date_str, 1, 10) as dt from tb_porder_line a inner join tb_porder b on a.oid = b.oid and b.post_date_str>='", dt()[1], "' and b.post_date_str<='",dt()[2]," and b.handle_status in (1,4,6,99)' inner join tb_product_catalogbase c on c.pid=a.pid")
+        x <- dbGetQuery0('ecommerce', sql) %>% 
+            unique() %>% 
+            mutate(dt = as.Date(dt)) %>% 
+            # 按类目+会员ID分组汇总
+            group_by(ctitle1, mid) %>% 
+            summarise(
+                r = as.numeric(Sys.Date() - max(dt)),
+                f = n()
+            ) %>% 
+            filter(!is.na(ctitle1)) %>% 
+            mutate(
+                f = ifelse(f==1, '1次', '2次及以上')
+            ) %>% 
+            reshape2::acast(ctitle1~f)
+        rn <- rownames(x)
+        x <- x %>% as.data.frame() %>% mutate(`重复购买率`= `2次及以上`/(`1次`+`2次及以上`))
+        rownames(x) <- rn
+        x
+    })
+
+    output$tbl <- DT::renderDataTable({
+        datatable(
+            df(),
+            escape = FALSE,
+            rownames = TRUE,
+            selection = 'none',
+            extensions = list(Scroller=list()),
+            options = list(
+                autoWidth = TRUE,
+                searching=TRUE,
+                deferRender=TRUE,
+                scrollY=200,
+                scrollX=TRUE,
+                scrollCollapse = TRUE,
+                order = list(list(1, 'desc')),
+                language = list(url = '//cdn.datatables.net/plug-ins/1.10.7/i18n/Chinese.json'),
+                pageLength = 200,
+                lengthChange = FALSE,
+                initComplete = JS("function(settings, json) {$('.dataTables_scrollBody').attr('style', 'overflow: auto; width: 100%;height: '+($(window).height()-220)+'px !important');}"),
+                fnDrawCallback = JS('function (oSettings, json) {oSettings.oScroll.sY = $(window).height()-220;$.each(oSettings.aoColumns, function(index, value){value.asSorting = ["desc", "asc"]})}')
+            )
+        ) %>% formatPercentage(c('重复购买率'), 2)
+    })
+    
+}
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 商品复购
+productRebuyUI <- function(id){
+    ns <- NS(id)
+    cate_ <- dbGetQuery0('ecommerce', "select distinct ctitle1 from tb_product_catalogbase where ctitle1 is not null")
+    tagList(
+        fluidRow(class='toolbar',
+                 column(2, dateRangeInput(ns('dt'), '付款时间', start = Sys.Date()-months(3)-1, end = Sys.Date()-1)),
+                 column(2, selectInput(ns('cate'), '类目', choices = cate_$ctitle1, selected = '男科用药')),
+                 column(2, numericInput(ns('f2'), '复购人数大于X人', value = 5))
+        ),
+        fluidRow(
+            DT::dataTableOutput(ns('tbl'))
+        )
+    )
+}
+productRebuy <- function(input, output, session) {
+    dt <- reactive({
+        req(input$dt)
+        input$dt
+    })
+    
+    cate <- reactive({
+        req(input$cate)
+        input$cate
+    })
+    f2 <- reactive({
+        req(input$f2)
+        input$f2
+    })
+    
+    df <- reactive({
+        sql <- paste0("select b.mid, a.name, a.pid,b.actual_pay as pay, substring(b.post_date_str, 1, 10) as dt from tb_porder_line a inner join tb_porder b on a.oid = b.oid inner join tb_product_catalogbase c on c.pid=a.pid where b.post_date_str>='", dt()[1], "' and b.post_date_str<='",dt()[2],"' and b.handle_status in (1,4,6,99) and c.ctitle1='",cate(),"'")
+        x <- dbGetQuery0('ecommerce', sql) %>% 
+            unique() %>% 
+            mutate(dt = as.Date(dt)) %>% 
+            # 按商品名称+会员ID分组汇总计算
+            group_by(name, mid) %>% 
+            summarise(
+                r = as.numeric(Sys.Date() - max(dt)),
+                f = n(),
+                pay = sum(pay, na.rm=TRUE)
+            ) %>% 
+            filter(!is.na(name)) %>% 
+            group_by(name) %>%
+            summarise(
+                `购买1次人数` = sum(f==1),
+                `购买2次及以上人数` = sum(f>1),
+                `重复购买金额` = sum(ifelse(f>1, pay, 0), na.rm=TRUE),
+                `重复购买率` = `购买2次及以上人数`/(`购买1次人数`+`购买2次及以上人数`),
+                `平均回购周期(天)` = mean(r, na.rm=TRUE),
+                `回购周期中位数(天)` = median(r, na.rm=TRUE)
+            ) %>%
+            rename(`产品`=name) %>% 
+            filter(`购买2次及以上人数` >= f2())
+        x %>% add_row(
+            `产品` = '合计',
+            `购买1次人数` = sum(x$`购买1次人数`),
+            `购买2次及以上人数` = sum(x$`购买2次及以上人数`),
+            `重复购买金额` = sum(x$`重复购买金额`),
+            `重复购买率` = sum(x$`购买2次及以上人数`)/(sum(x$`购买1次人数`)+sum(x$`购买2次及以上人数`)),
+            `平均回购周期(天)` = mean(x$`平均回购周期(天)`),
+            `回购周期中位数(天)` = mean(x$`回购周期中位数(天)`)
+        )
+    })
+    
+    output$tbl <- DT::renderDataTable({
+        datatable(
+            df(),
+            escape = FALSE,
+            rownames = FALSE,
+            selection = 'none',
+            extensions = list(Scroller=list()),
+            options = list(
+                autoWidth = TRUE,
+                searching=TRUE,
+                deferRender=TRUE,
+                scrollY=200,
+                scrollCollapse = TRUE,
+                order = list(list(1, 'desc')),
+                language = list(url = '//cdn.datatables.net/plug-ins/1.10.7/i18n/Chinese.json'),
+                pageLength = 200,
+                lengthChange = FALSE,
+                initComplete = JS("function(settings, json) {$('.dataTables_scrollBody').attr('style', 'overflow: auto; width: 100%;height: '+($(window).height()-220)+'px !important');}"),
+                fnDrawCallback = JS('function (oSettings, json) {oSettings.oScroll.sY = $(window).height()-220;$.each(oSettings.aoColumns, function(index, value){value.asSorting = ["desc", "asc"]})}')
+            )
+        ) %>% formatPercentage(c('重复购买率'), 2) %>% formatRound(c('重复购买金额', '平均回购周期(天)', '回购周期中位数(天)'), 2)
+    })
+    
+}
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 重点商品毛利
+highProfitProductUI <- function(id) {
+    ns <- NS(id)
+    kf <- dbGetQuery0('bbf_shiny', "select '全部' as name, 'all' as name_py union all select name, name_py from bbf_stuff order by name_py")
+    cooperation <- dbGetQuery0('bbf_shiny', "select '全部' as cooperation union all select distinct cooperation from bbf_hpp")$cooperation
+    tagList(
+        fluidRow(
+            class='toolbar',
+            column(2, dateRangeInput(ns('dt'), '下单时间', start = Sys.Date()-months(1), end=Sys.Date())),
+            column(2, selectInput(ns('kf'), '客服', choices = setNames(kf$name_py, kf$name))),
+            column(2, selectInput(ns('cooperation'), '合作商家', choices = cooperation)),
+            column(2, downloadButton(ns('btn_export'), '导出', class = 'btn_nowrap'))
+        ),
+        fluidRow(
+            column(12, DT::dataTableOutput(ns('tbl')))
+        )
+    )
+}
+highProfitProduct <- function(input, output, session) {
+    dt <- reactive({
+        req(input$dt)
+        input$dt
+    })
+    
+    cooperation <- reactive({
+        req(input$cooperation)
+        if(input$cooperation=='全部') {
+            dbGetQuery0('bbf_shiny', "select distinct cooperation from bbf_hpp")$cooperation
+        } else {
+            input$cooperation
+        }
+    })
+    
+    kf <- reactive({
+        req(input$kf)
+        if(input$kf == 'all'){
+            tmp <- dbGetQuery0('bbf_shiny', 'select name_py from bbf_stuff')
+            c(tmp$name_py, '')
+        } else {
+            input$kf 
+        }
+    })
+    
+    
+    ## 20160607 把 商品金额改成 到账金额
+    df0 <- reactive({
+        tmp1 <- dbGetQuery0('bbf_shiny', 'select * from bbf_hpp')
+        tmp2 <- dbGetQuery0('ecommerce', paste0("select 
+                b.pid, b.shop_code,cast(a.orderno as char) as orderno, substring(a.post_date_str,1,10) as post_date_str, a.adminaccount,
+                case 
+                    when isback = 0 then '静默'
+                    when isback = 1 then '发展'
+                    when isback = 2 then '静默'
+                    when isback = 3 then '静默'
+                    when isback = 4 then '静默'
+                    when isback = 5 then '增值'
+                end as isback,
+                a.handle_status,
+                a.merchant_name, b.name,b.guige, b.shop_price, b.quantity, a.ACTUAL_PAY amount
+            from tb_porder_line b
+            join tb_porder a
+            on a.oid=b.oid 
+            where 1=1 and payname is not null and a.post_date_str>='",dt()[1],"' and a.post_date_str<='",dt()[2],"' and b.pid in (select distinct pid from bbf_shiny.bbf_hpp)"))
+        tmp2 %>%
+            left_join(tmp1, by='pid') %>% 
+            filter(cooperation %in% cooperation(), !handle_status %in% c(5,7,97)) %>% 
+            mutate(
+                handle_status = ifelse(handle_status==0, '待处理',
+                                       ifelse(handle_status==1, '正在配货',
+                                              ifelse(handle_status==4, '交易成功',
+                                                     ifelse(handle_status==5, '交易取消',
+                                                            ifelse(handle_status==6, '已收货',
+                                                                   ifelse(handle_status==7, '交易关闭',
+                                                                          ifelse(handle_status==97, '已退货',
+                                                                                 ifelse(handle_status==99, '已发货', '未知'))))))))
+            )
+    })
+    # 毛利计算：
+    # 佛灵          ：发展：售价*数量*10%； 增值：售价*数量*15%； 静默：售价*数量*10%
+    # 昌盛          ：(售价-进价)*数量*0.7
+    # 百悦/自有仓库 : (售价-进价)*数量
+    # 博爱/其他     ：售价*数量*利润率
+    df <- reactive({
+        tmp <- df0() %>% 
+            filter(adminaccount %in% kf()) %>% 
+            mutate(
+                #profit = ifelse(cooperation=='昌盛', quantity*(shop_price-pact_price)*0.7,
+                profit = ifelse(cooperation=='昌盛', (amount-(quantity*pact_price))*0.7,  #(到账-(进价*数量)*0.7  20160607
+                                ifelse(cooperation=='佛灵', ifelse(isback=='增值', shop_price*quantity*0.15, shop_price*quantity*0.1),
+                                       ifelse(cooperation=='佰悦', quantity*(shop_price-pact_price),
+                                              ifelse(cooperation=='自有仓库', quantity*(shop_price-pact_price),
+                                                     profit_rate*shop_price*quantity)))),
+                # 直接在上面profit的基础上：profit/amount即可
+                #profit_rate = ifelse(cooperation=='昌盛', profit/amount,
+                profit_rate = ifelse(cooperation=='昌盛', profit/(pact_price*quantity),   
+                                     #毛利率=利润/(进价*数量) 20160607
+                                     ifelse(cooperation=='佛灵', ifelse(isback=='增值', profit/amount, profit/amount),
+                                            ifelse(cooperation=='佰悦', profit/amount,
+                                                   ifelse(cooperation=='自有仓库', profit/amount,
+                                                          profit_rate))))
+            ) %>% 
+            select(
+                `订单号`   = orderno,
+                `下单时间` = post_date_str,
+                `客服`     = adminaccount,
+                `订单来源` = isback,
+                `订单状态` = handle_status,
+                `商家`     = merchant_name,
+                `商品`     = name,
+                `规格`     = guige,
+                `进价`     = pact_price,
+                `售价`     = shop_price,
+                `销售数量` = quantity,
+                `销售额`   = amount,
+                `毛利`     = profit,
+                `毛利率`   = profit_rate
+            )
+        tmp %>% add_row(
+            `订单号`   = '合计',
+            `下单时间` = paste0(' ',dt()[1],'<br/>',dt()[2]),
+            `客服`     = '',
+            `订单来源` = '',
+            `订单状态` = '',
+            `商家`     = '',
+            `商品`     = '',
+            `规格`     = '',
+            `进价`     = '',
+            `售价`     = '',
+            `销售数量` = sum(tmp$`销售数量`, na.rm=TRUE),
+            `销售额`   = sum(tmp$`销售额`, na.rm=TRUE),
+            `毛利`     = sum(tmp$`毛利`, na.rm=TRUE),
+            `毛利率`   = sum(tmp$`毛利`, na.rm=TRUE)/sum(tmp$`销售额`, na.rm=TRUE)
+        )
+    })
+    # export
+    output$btn_export <- downloadHandler(paste('bbf-data-hpp-',Sys.Date(),'.csv',sep=''), content = function(file) {
+        if(TRUE){
+            tmp <- df()[input$tbl_rows_all, , drop = FALSE] %>% mutate(`订单号`=paste0("'", `订单号`))
+            write.csv(tmp, file, fileEncoding='gbk',row.names=FALSE)
+        } else {
+            write.csv('无数据下载权限', file, fileEncoding='gbk', row.names=FALSE, col.names=FALSE)
+        }
+        
+    })
+    
+    output$tbl <- DT::renderDataTable({
+        datatable(
+            df(),
+            escape = FALSE,
+            rownames = FALSE,
+            selection = 'none',
+            extensions = list(FixedColumns = list(leftColumns = 1), Scroller=list()),
+            options = list(
+                autoWidth = TRUE,
+                searching = TRUE,
+                deferRender = TRUE,
+                scrollY = 200,
+                scrollX = TRUE,
+                scrollCollapse = TRUE,
+                order = list(list(1, 'asc')),
+                language = list(url = '//cdn.datatables.net/plug-ins/1.10.7/i18n/Chinese.json'),
+                pageLength = 200,
+                lengthChange = FALSE,
+                initComplete = JS("function(settings, json) {$('.dataTables_scrollBody').attr('style', 'overflow: auto; width: 100%;height: '+($(window).height()-210)+'px !important');}"),
+                fnDrawCallback = JS('function (oSettings, json) {oSettings.oScroll.sY = $(window).height()-210;$.each(oSettings.aoColumns, function(index, value){value.asSorting = ["desc", "asc"]})}')
+            )
+        ) %>% formatRound(c('进价','售价','毛利','销售额'), 2) %>% formatPercentage(c('毛利率'), 2)
+    })
+}
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 普通商品毛利
+productProfitUI <- function(id) {
+    ns <- NS(id)
+    kf <- dbGetQuery0('bbf_shiny', "select '全部' as name, 'all' as name_py union all select name, name_py from bbf_stuff order by name_py")
+    merchant <- dbGetQuery0('ecommerce', "select '全部' as merchant_name, 999999999999999 as pay union all select merchant_name,sum(actual_pay) as pay from tb_porder group by merchant_name order by pay desc")$merchant_name
+    tagList(
+        fluidRow(
+            class='toolbar',
+            column(2, dateRangeInput(ns('dt'), '下单时间', start = Sys.Date()-months(1), end=Sys.Date())),
+            column(1, selectInput(ns('kf'), '客服', choices = setNames(kf$name_py, kf$name))),
+            column(4, selectInput(ns('merchant'), '商家(多选,支持名字搜索)', choices = merchant, selected = '全部', multiple = TRUE)),
+            column(1, downloadButton(ns('btn_export'), '导出', class = 'btn_nowrap')),
+            column(3, helpText(br(),icon('warning'),'本报表已经排除高毛利商品'))
+        ),
+        fluidRow(
+            column(12, DT::dataTableOutput(ns('tbl')))
+        )
+    )
+}
+productProfit <- function(input, output, session) {
+    
+    dt <- reactive({
+        req(input$dt)
+        input$dt
+    })
+    merchant <- reactive({
+        req(input$merchant)
+        if(input$merchant == '全部'){
+            dbGetQuery0('ecommerce', "select distinct merchant_name as merchant from tb_porder")$merchant
+        } else {
+            input$merchant
+        }
+    })
+    kf <- reactive({
+        req(input$kf)
+        if(input$kf == 'all'){
+            tmp <- dbGetQuery0('bbf_shiny', 'select name_py from bbf_stuff')
+            c(tmp$name_py, '')
+        } else {
+            input$kf 
+        }
+    })
+    
+    df <- reactive({
+        tmp <- dbGetQuery0('ecommerce', paste0("select
+                                                b.pid, b.shop_code,cast(a.orderno as char) as orderno, substring(a.post_date_str,1,10) as post_date_str, a.adminaccount,
+                                                case 
+                                                    when a.isback = 0 then '静默'
+                                                    when a.isback = 1 then '发展'
+                                                    when a.isback = 2 then '静默'
+                                                    when a.isback = 3 then '静默'
+                                                    when a.isback = 4 then '静默'
+                                                    when a.isback = 5 then '增值'
+                                                end as isback,
+                                                a.handle_status,
+                                                a.note,
+                                                a.merchant_name, b.name, b.guige,b.shop_price, b.quantity, b.amount,b.BCBILV,b.commission
+                                                from tb_porder_line b
+                                                join tb_porder a
+                                                on a.oid=b.oid 
+                                                where 1=1 and payname is not null and a.post_date_str>='",dt()[1],"' and a.post_date_str<='",dt()[2],"' and b.pid not in (select distinct pid from bbf_shiny.bbf_hpp)")) %>% 
+            filter(adminaccount %in% kf(), merchant_name %in% merchant(), !handle_status %in% c(5,7,97)) %>% 
+            mutate(
+                handle_status = ifelse(handle_status==0, '待处理',
+                                       ifelse(handle_status==1,'正在配货',
+                                              ifelse(handle_status==4,'交易成功',
+                                                     ifelse(handle_status==5, '交易取消',
+                                                             ifelse(handle_status==6, '已收货',
+                                                                     ifelse(handle_status==7, '交易关闭',
+                                                                             ifelse(handle_status==97, '已退货',
+                                                                                     ifelse(handle_status==99, '已发货', '未知'))))))))
+            ) %>% 
+            select(
+                `订单号`   = orderno,
+                `下单时间` = post_date_str,
+                `客服`     = adminaccount,
+                `订单来源` = isback,
+                `订单状态` = handle_status,
+                `商家`     = merchant_name,
+                `商品`     = name,
+                `规格`     = guige,
+                `备注`=note,
+                `售价`     = shop_price,
+                `销售数量` = quantity,
+                `销售额`   = amount,
+                `商品分成` = commission,
+                `分成比率` = BCBILV
+            )
+        tmp %>% add_row(
+            `订单号`   = '合计',
+            `下单时间` = paste0(' ',min(tmp$`下单时间`),'<br/>',max(tmp$`下单时间`)),
+            `客服`     = '',
+            `订单来源` = '',
+            `订单状态` = '',
+            `商家`     = '',
+            `商品`     = '',
+            `规格`     = '',
+            `售价`     = '',
+            `销售数量` = sum(tmp$`销售数量`, na.rm=TRUE),
+            `销售额`   = sum(tmp$`销售额`, na.rm=TRUE),
+            `商品分成`     = sum(tmp$`商品分成`, na.rm=TRUE),
+            `分成比率`   = sum(tmp$`商品分成`, na.rm=TRUE)/sum(tmp$`销售额`, na.rm=TRUE)
+        )
+    })
+    # export
+    output$btn_export <- downloadHandler(paste('bbf-data-pp-',Sys.Date(),'.csv',sep=''), content = function(file) {
+        if(TRUE){
+            tmp <- df()[input$tbl_rows_all, , drop = FALSE] %>% mutate(`订单号`=paste0("'", `订单号`))
+            write.csv(tmp, file, fileEncoding='gbk',row.names=FALSE)
+        } else {
+            write.csv('无数据下载权限', file, fileEncoding='gbk', row.names=FALSE, col.names=FALSE)
+        }
+        
+    })
+    
+    output$tbl <- DT::renderDataTable({
+        datatable(
+            df(),
+            escape = FALSE,
+            rownames = FALSE,
+            selection = 'none',
+            extensions = list(FixedColumns = list(leftColumns = 1), Scroller=list()),
+            options = list(
+                autoWidth = TRUE,
+                searching = TRUE,
+                deferRender = TRUE,
+                scrollY = 200,
+                scrollX = TRUE,
+                scrollCollapse = TRUE,
+                order = list(list(1, 'asc')),
+                language = list(url = '//cdn.datatables.net/plug-ins/1.10.7/i18n/Chinese.json'),
+                pageLength = 200,
+                lengthChange = FALSE,
+                initComplete = JS("function(settings, json) {$('.dataTables_scrollBody').attr('style', 'overflow: auto; width: 100%;height: '+($(window).height()-210)+'px !important');}"),
+                fnDrawCallback = JS('function (oSettings, json) {oSettings.oScroll.sY = $(window).height()-210;$.each(oSettings.aoColumns, function(index, value){value.asSorting = ["desc", "asc"]})}')
+            )
+        ) %>% formatRound(c('售价','商品分成','销售额'), 2) %>% formatPercentage(c('分成比率'), 2)
+    })
+}
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 重点商品管理
+highProfitProductMetaUI <- function(id) {
+    ns <- NS(id)
+    
+    fluidPage(
+        column(
+            4,
+            titlePanel("高毛利商品表"),
+            helpText(icon('warning'), br(), '1. 此表由开发更新', br(), '2. '),
+            div(
+                actionButton(ns("btn_save"), "保 存", icon = icon('save')),
+                actionButton(ns("btn_reload"), "刷 新", icon = icon('refresh'))
+            )
+        ),
+        column(
+            8,
+            rHandsontableOutput(ns("hot"))
+        )
+    )
+}
+highProfitProductMeta <- function(input, output, session) {
+    # DROP table bbf_shiny.bbf_hpp;
+    # CREATE TABLE bbf_shiny.`bbf_hpp` (
+    #     `pid`  int NULL ,
+    #     `cooperation`  varchar(255) NULL ,
+    #     `pact_price`  decimal(7,2) NULL ,
+    #     `profit_rate`  decimal(7,2) NULL ,
+    #     `channel`  varchar(255) NULL ,
+    #     `signed_dt`  varchar(255) NULL
+    # );
+    # delete from bbf_shiny.bbf_hpp;
+    # load data local infile '/tmp/pp.csv' into table bbf_shiny.bbf_hpp fields terminated by ','  enclosed by '"' lines terminated by '\n' (pid, cooperation,pact_price,profit_rate,channel,signed_dt);
+    values = list()
+    setHot = function(x) {
+        values[["hot"]] <<- x
+    }
+    
+    observeEvent(input$btn_save, {
+        if (!is.null(values[["hot"]])) {
+            dbGetQuery0('bbf_shiny', "delete from bbf_hpp")
+            dbWriteTable0('bbf_shiny', 'bbf_hpp', values[["hot"]])
+            info('更新完成')
+        }
+    })
+    observeEvent(input$btn_reload, {
+        df = dbReadTable0('bbf_shiny', 'bbf_hpp')
+        setHot(df)
+        rhandsontable(df) %>%
+            hot_table(highlightCol = TRUE, highlightRow = TRUE)
+    })
+    output$hot = renderRHandsontable({
+        if (!is.null(input$hot)) {
+            df = hot_to_r(input$hot)
+        } else {
+            df = dbReadTable0('bbf_shiny', 'bbf_hpp')
+        }
+        
+        setHot(df)
+        rhandsontable(df) %>%
+            hot_table(highlightCol = TRUE, highlightRow = TRUE)
+    })
+}
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 咨询记录
+customerUI <- function(id) {
+    ns <- NS(id)
+    
+    tagList(
+        fluidRow(
+            class='toolbar',
+            column(2, dateRangeInput(ns('dt'), '更新时间', start = Sys.Date()-months(1), end=Sys.Date())),
+            column(2, downloadButton(ns('btn_export'), '导出', class = 'btn_nowrap'))
+        ),
+        fluidRow(
+            column(12, DT::dataTableOutput(ns('tbl')))
+        )
+    )
+}
+customer <- function(input, output, session) {
+    dt <- reactive({
+        req(input$dt)
+        input$dt
+    })
+    
+    
+    
+    ##update by gonghg 20160615
+    # 会员中心反馈导出数据错位， 因为以下字段存在换行等特殊字符
+    # replace(replace(replace(a.customerNote, char(13), ''),    char(10)  ,'') , char(9) ,'') customerNote,
+    # replace(replace(replace(a.note, char(13), ''),    char(10)  ,'') , char(9) ,'') note,
+    # replace(replace(replace(a.solution, char(13), ''),    char(10)  ,'') , char(9) ,'') solution,
+    df <- reactive({
+        dbGetQuery0('ecommerce', paste0("select a.id, b.id as record_id, cast(a.orderno as char) as orderno, d.actual_pay, a.createtime, a.merchantname, a.servicetype, 
+
+replace(replace(replace(a.customerNote, char(13), ''),    char(10)  ,'') , char(9) ,'') customerNote,
+replace(replace(replace(a.note, char(13), ''),    char(10)  ,'') , char(9) ,'') note,
+replace(replace(replace(a.solution, char(13), ''),    char(10)  ,'') , char(9) ,'') solution,
+a.updatetime,b.status,b.kefu from tb_customer a left join tb_shouhou_record b on a.id = b.customerid and substring(a.updatetime,1,10)=substring(b.createtime,1,10) left join tb_porder d on a.orderno=d.orderno where substring(a.updatetime,1,10)>='", dt()[1], "' and substring(a.updatetime,1,10)<='", dt()[2], "'")) %>% 
+            arrange(id, desc(record_id)) %>% 
+            group_by(id) %>% 
+            top_n(1, record_id) %>% 
+            mutate(
+                createtime = as.Date(createtime),
+                updatetime = as.Date(updatetime),
+                #status = c('已完成','处理中','未处理')[as.integer(status)+1],
+                servicetype = c('顾客自身原因','发错货/发漏货','物流配送','商品信息错误','药品质量','其他原因','超时发货','商家客服服务','系统原因','八百方客服服务','商家客服服务(擅自改物流)','商家客服服务(虚假发货)','查账(已到账)','撤销投诉','查账(未到账)')[as.integer(servicetype)],
+                customerNote = stringr::str_replace_all(customerNote, pattern = '\n', '<br />'),
+                note = stringr::str_replace_all(note, pattern = '\n', '<br />'),
+                solution = stringr::str_replace_all(solution, pattern = '\n', '<br />')
+            ) %>% 
+            select(
+                `序号` = id,
+                `商家名称` = merchantname,
+                `订单编号` = orderno,
+                `订单金额` = actual_pay,
+                `咨询日期` = createtime,
+                `更新日期` = updatetime,
+                `处理状态` = status,
+                `处理客服` = kefu,
+                `售后问题分类` = servicetype,
+                `投诉内容` = customerNote,
+                `客服备注` = note,
+                `处理流程` = solution
+)
+    })
+    
+    # export
+    output$btn_export <- downloadHandler(paste('bbf-data-customer-shouhou-',Sys.Date(),'.csv',sep=''), content = function(file) {
+        if(TRUE){
+            tmp <- df()[input$tbl_rows_all, , drop = FALSE] %>%
+                mutate(
+                    `订单编号` = paste0(`订单编号`, '-'),
+                    `投诉内容` = stringr::str_replace_all(`投诉内容`, pattern = '<br />', '\n'),
+                    `客服备注` = stringr::str_replace_all(`客服备注`, pattern = '<br />', '\n'),
+                    `处理流程` = stringr::str_replace_all(`处理流程`, pattern = '<br />', '\n')
+                )
+            write.csv(tmp, file, fileEncoding='gbk',row.names=FALSE)
+        } else {
+            write.csv('无数据下载权限', file, fileEncoding='gbk', row.names=FALSE, col.names=FALSE)
+        }
+        
+    })
+    
+    output$tbl <- renderDataTable({
+        datatable(
+            df(),
+            escape = FALSE,
+            rownames = FALSE,
+            selection = 'none',
+            extensions = list(FixedColumns = list(leftColumns = 1), Scroller=list()),
+            options = list(
+                autoWidth = TRUE,
+                searching=TRUE,
+                deferRender=TRUE,
+                scrollY=200,
+                scrollX=TRUE,
+                scrollCollapse = TRUE,
+                order = list(list(0, 'asc')),
+                language = list(url = '//cdn.datatables.net/plug-ins/1.10.7/i18n/Chinese.json'),
+                pageLength = 200,
+                lengthChange = FALSE,
+                initComplete = JS("function(settings, json) {$('.dataTables_scrollBody').attr('style', 'overflow: auto; width: 100%;height: '+($(window).height()-210)+'px !important');}"),
+                fnDrawCallback = JS('function (oSettings, json) {oSettings.oScroll.sY = $(window).height()-210;$.each(oSettings.aoColumns, function(index, value){value.asSorting = ["desc", "asc"]})}')
+            )  # options end
+        )
+    })
+}
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 客服业绩
+kefuSaleUI <- function(id) {
+    ns <- NS(id)
+    
+    tagList(
+        fluidRow(
+            class='toolbar',
+            column(2, dateRangeInput(ns('dt'), '日期', start = Sys.Date()-months(3), end=Sys.Date())),
+            column(2, selectInput(ns('dept'), '部门', choices = c('客户发展部'=1, '客户增值部'=5))),
+            column(3, radioButtons(ns('gg_scale'), '统一金额坐标?', choices = c('是'='fixed', '否'='free_y'), inline=TRUE)),
+            column(2, sliderInput(ns('day_range'), '最小成单天数',min = 0, max = 365, value = c(5, 120)))
+        ),
+        fluidRow(
+            column(12, plotOutput(ns('plot'), height = '1200px'))
+        )
+    )
+}
+kefuSale <- function(input, output, session) {
+    dt <- reactive({
+        req(input$dt)
+        input$dt
+    })
+    dept <- reactive({
+        req(input$dept)
+        input$dept
+    })
+    
+    day_range <- reactive({
+        req(input$day_range)
+        input$day_range
+    })
+    
+    gg_scale <- reactive({
+        req(input$gg_scale)
+        input$gg_scale
+    })
+    
+    df <- reactive({
+        # 未审核发布导致isback更新错误，需要使用名字来统计
+        dbGetQuery0("ecommerce", paste0("select b.name, b.dept, a.adminaccount, case when b.dept='客户发展部' then 1 when b.dept='客户增值部' then 5 else a.isback end as isback, substring(a.post_date_str, 1, 10) as dt, a.actual_pay from tb_porder a join bbf_shiny.bbf_stuff b on a.adminaccount = b.name_py where a.post_date_str>='",dt()[1],"' and a.post_date_str<='",dt()[2],"' and handle_status in (0,1,4,6,99)")) %>% 
+            filter(
+                isback == dept()
+            )
+    })
+    
+    output$plot <- renderPlot({
+        # 按总订单金额排序
+        tmp <- df() %>% group_by(name) %>% summarise(pay=sum(actual_pay, na.rm=TRUE)) %>% arrange(desc(pay))
+        lvl <- tmp$name
+        showtext.auto()
+        x <- df() %>% 
+            mutate(dt = as.Date(dt)) %>% 
+            group_by(name) %>% 
+            mutate(day_cnt = n_distinct(dt)) %>% 
+            group_by(name, dt) %>% 
+            summarise(
+                pay=sum(actual_pay, na.rm=TRUE),
+                day_cnt = max(day_cnt)
+            ) %>% 
+            ungroup() %>% 
+            filter(between(day_cnt, day_range()[1], day_range()[2]))
+        x$name = factor(x$name, levels=lvl)
+        x %>% 
+            ggplot(aes(dt, pay))+geom_point(aes(color=name, fill=name))+geom_smooth(aes(colour = name, fill = name, alpha=0.5))+facet_wrap(~name, scales = gg_scale())+theme(legend.position="none",axis.text.x = element_text(angle = 90, hjust = 1), text=element_text(family = 'wqy'))+labs(x='日期', y='金额')
+    })
+}
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 商家缺货率
+merchantPenaltyUI <- function(id) {
+    ns <- NS(id)
+    
+    tagList(
+        fluidRow(
+            class='toolbar',
+            column(3, dateRangeInput(ns('dt'), '日期', start = Sys.Date()-months(3), end=Sys.Date())),
+            column(2, downloadButton(ns('btn_export'), '导出', class = 'btn_nowrap'))
+        ),
+        fluidRow(
+            column(3, textInput(ns('txt'), '商家名(Excel直接复制粘贴)', value = '安利亚药房 安徽国胜大药房')),
+            column(9, DT::dataTableOutput(ns('tbl')))
+        )
+    )
+}
+merchantPenalty <- function(input, output, session) {
+    dt <- reactive({
+        req(input$dt)
+        input$dt
+    })
+
+    txt <- reactive({
+        req(input$txt)
+        stringr::str_replace_all(input$txt, " ", "','")
+    })
+    
+    df <- reactive({
+        dbGetQuery0("ecommerce", paste0("SELECT a.merchant_name, c.post_date, c.out_stock, CASE WHEN b.bcid = 1 THEN b.rate END AS rate_1,  avg( CASE WHEN b.bcid = 25 THEN b.rate END ) AS rate_2,  max(d.amount) as amount FROM tb_merchant a JOIN tb_merchant_catalog_rate b ON a.merchant_code = b.shop_code JOIN (select * from tb_merchant_rating cc where substring(cc.post_date, 1, 7) = '",substr(Sys.Date(),1,7),"') c ON c.shop_code = a.merchant_code JOIN (SELECT dd.SHOPCODE, sum(dd.amount) as AMOUNT FROM tb_porder_drawback dd WHERE SUBSTRING(dd.DUALDATES,1,7)='2016-04' AND dd.reason = '卖家缺货' GROUP BY SHOPCODE) d ON d.shopcode = a.merchant_code  WHERE a.merchant_name IN ('",txt(),"') GROUP BY a.merchant_name")) %>% 
+            mutate(post_date=as.Date(post_date)) %>% 
+            select(
+                `商家` = merchant_name,
+                `日期` = post_date,
+                `缺货率` = out_stock,
+                `药品` = rate_1,
+                `非药` = rate_2,
+                `金额` = amount
+            )
+    })
+    # export
+    output$btn_export <- downloadHandler(paste('bbf-data-merchant_penalty-',Sys.Date(),'.csv',sep=''), content = function(file) {
+        if(TRUE){
+            tmp <- df()[input$tbl_rows_all, , drop = FALSE]
+            write.csv(tmp, file, fileEncoding='gbk',row.names=FALSE)
+        } else {
+            write.csv('无数据下载权限', file, fileEncoding='gbk', row.names=FALSE, col.names=FALSE)
+        }
+        
+    })
+    output$tbl <- renderDataTable({
+        datatable(
+            df(),
+            escape = FALSE,
+            rownames = FALSE,
+            selection = 'none',
+            extensions = list(Scroller=list()),
+            options = list(
+                autoWidth = TRUE,
+                searching=TRUE,
+                deferRender=TRUE,
+                scrollY=200,
+                scrollCollapse = TRUE,
+                order = list(list(0, 'asc')),
+                language = list(url = '//cdn.datatables.net/plug-ins/1.10.7/i18n/Chinese.json'),
+                pageLength = 200,
+                lengthChange = FALSE,
+                initComplete = JS("function(settings, json) {$('.dataTables_scrollBody').attr('style', 'overflow: auto; width: 100%;height: '+($(window).height()-210)+'px !important');}"),
+                fnDrawCallback = JS('function (oSettings, json) {oSettings.oScroll.sY = $(window).height()-210;$.each(oSettings.aoColumns, function(index, value){value.asSorting = ["desc", "asc"]})}')
+            )
+        )
+    })
+}
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 热卖类目
+topCatalogUI <- function(id) {
+    ns <- NS(id)
+    
+    tagList(
+        fluidRow(
+            class='toolbar',
+            column(3, dateRangeInput(ns('dt'), '日期', start = Sys.Date()-2, end=Sys.Date())),
+            column(3, radioButtons(ns('type'), '维度', choices = c('地区主导'='region', '类目主导'='catalog', '产品主导'='product'), inline = TRUE)),
+            column(2, downloadButton(ns('btn_export'), '导出', class = 'btn_nowrap'))
+        ),
+        fluidRow(
+            column(12, d3tree2Output(ns('p'), height = '600'))
+        )
+    )
+}
+topCatalog <- function(input, output, session) {
+    dt <- reactive({
+        req(input$dt)
+        input$dt
+    })
+    
+    type <- reactive({
+        req(input$type)
+        input$type
+    })
+    
+    df <- reactive({
+        tmp <- dbGetQuery0("ecommerce", paste0("SELECT a.pid,a.name, b.province_name as province,b.city_name as city, max(c.ctitle0) as ctitle0, max(c.ctitle1) as ctitle1, max(c.ctitle2) as ctitle2, max(c.cid0) as cid0, max(c.cid1) as cid1, max(c.cid2) as cid2, sum(a.amount) as amount, count(a.oid) as cnt from tb_porder_line a join tb_porder b on a.oid=b.oid join tb_product_catalogbase c on a.pid=c.pid where b.post_date_str>'",dt()[1],"' and b.post_date_str<='",dt()[2],"' and b.handle_status in (0,1,4,6,99) group by pid"))
+        tmp$cid1 <- as.factor(tmp$cid1)
+        tmp %>% 
+            filter(
+                province != '\\N',
+                city     != '\\N',
+                ctitle0  != '\\N',
+                ctitle1  != '\\N',
+                ctitle2  != '\\N'
+            )
+    })
+    # export
+    output$btn_export <- downloadHandler(paste('bbf-data-merchant_penalty-',Sys.Date(),'.csv',sep=''), content = function(file) {
+        if(TRUE){
+            tmp <- df()[input$tbl_rows_all, , drop = FALSE]
+            write.csv(tmp, file, fileEncoding='gbk',row.names=FALSE)
+        } else {
+            write.csv('无数据下载权限', file, fileEncoding='gbk', row.names=FALSE, col.names=FALSE)
+        }
+        
+    })
+    output$p <- renderD3tree2({
+        showtext.auto()
+        if(type()=='region') {
+            treemap(df(), index = c('province', 'name'), title.legend = 'amount', vSize='amount', vColor='province', type='categorical', draw = FALSE) %>% 
+                d3tree3(rootname='地区',celltext=.$amount)
+        } else if(type()=='catalog') {
+            treemap(df(), index = c('ctitle1','ctitle2','name'), title.legend = 'amount', vSize='amount', vColor='ctitle2', type='categorical', draw = FALSE) %>% 
+                d3tree3(rootname='中西成药',celltext=.$amount) 
+        } else {
+            treemap(df(), index = c('name','province'), title.legend = 'amount', vSize='amount', vColor='province', type='categorical', draw = FALSE) %>% 
+                d3tree3(rootname='中西成药',celltext=.$amount) 
+        }
+        
+    })
+}
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 小能数据
+xnChatUI <- function(id){
+    ns <- NS(id)
+    dept <- dbGetQuery0('bbf_shiny', "select distinct `用户_商户` as dept from bbf_xn_daily")$dept
+    tagList(
+        fluidRow(
+            class='toolbar',
+            column(3, dateRangeInput(ns('dt'), '日期', start = '2016-03-01', end=Sys.Date()-1)),
+            column(2, selectInput(ns('field'), '指标', choices = c('咨询总量', '有效咨询', '无效咨询', '接通率', '首次响应时间', '平均响应时间', '平均咨询用时', '留言处理率', '咨询订单', '已购买咨询', '订单金额', '支付订单', '咨询下单用户', '有效咨询用户', '支付率', '满意度'))),
+            column(2, selectInput(ns('dept'), '部门', choices = dept)),
+            column(2, downloadButton(ns('btn_export'), '导出', class = 'btn_nowrap'))
+        ),
+        fluidRow(
+            column(12, plotlyOutput(ns('p')))
+        )
+    )
+}
+xnChat <- function(input, output, session) {
+    dt <- reactive({
+        req(input$dt)
+        input$dt
+    })
+    dept <- reactive({
+        req(input$dept)
+        input$dept
+    })
+    field <- reactive({
+        req(input$field)
+        input$field
+    })
+    df <- reactive({
+        dbGetQuery0('bbf_shiny', paste0("select * from bbf_xn_daily where `用户_商户`='",dept(),"' and dt>='",dt()[1],"' and dt<='",dt()[2],"'")) %>% 
+            mutate(
+                dt = as.Date(dt),
+                `接通率` = as.numeric(stringi::stri_replace(`接通率`, '', regex = '%'))/100,
+                `留言处理率` = as.numeric(stringi::stri_replace(`留言处理率`, '', regex = '%'))/100,
+                `支付率` = as.numeric(stringi::stri_replace(`支付率`, '', regex = '%'))/100,
+                `满意度` = as.numeric(stringi::stri_replace(`满意度`, '', regex = '%'))/100
+            )
+    })
+    
+    output$p <- renderPlotly({
+        p <- df() %>% ggplot(aes_string('dt', field()))+geom_point(aes(color='1'))+geom_line(aes(color='1'))+geom_smooth()+theme(legend.position='none')
+        ggplotly(p)
+    })
+}
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 呼叫中心数据
+ccCallUI <- function(id){
+    ns <- NS(id)
+
+    kefu <- dbGetQuery0('bbf_shiny', 'select distinct `座席` as kefu from bbf_cc_call_report_dept')$kefu
+    tagList(
+        fluidRow(
+            class='toolbar',
+            column(3, dateRangeInput(ns('dt'), '日期', start = '2016-03-01', end=Sys.Date())),
+            column(2, selectInput(ns('field'), '指标', choices = c('呼入总数', '呼入接通数', '呼入未接数', '呼入接通率', '外呼总数', '外呼成功数', '转接来电接听数', '在线总时长', '呼入通话总时长', '呼入通话平均时长', '外呼通话总时长', '外呼通话平均时长', '平均每小时通话数'), selected = '外呼成功数')),
+            column(2, selectInput(ns('kf'), '客服', choices = kefu, selected = '谢静')),
+            column(2, downloadButton(ns('btn_export'), '导出', class = 'btn_nowrap'))
+        ),
+        fluidRow(
+            column(12, plotlyOutput(ns('p'), height = '630px'))
+        )
+    )
+}
+ccCall <- function(input, output, session) {
+    dtdt <- reactive({
+        req(input$dt)
+        input$dt
+    })
+    field <- reactive({
+        req(input$field)
+        input$field
+    })
+    kf <- reactive({
+        req(input$kf)
+        input$kf
+    })
+    df <- reactive({
+        dbGetQuery0('bbf_shiny', paste0("select * from bbf_cc_call_report_dept where dt>='",dtdt()[1],"' and dt<='",dtdt()[2],"'")) %>% 
+            mutate(
+                dt = as.Date(dt),
+                `呼入接通率` = as.numeric(stringi::stri_replace(`呼入接通率`, '', regex = '%'))/100
+            ) %>% 
+            filter(
+                `座席` == kf()
+            )
+    })
+    
+    output$p <- renderPlotly({
+        p <- df() %>% ggplot(aes_string('dt', field()))+geom_point(aes(color='1'))+geom_line(aes(color='1'))+geom_smooth()+theme(legend.position='none')
+        ggplotly(p)
+    })
+}
+
+
+

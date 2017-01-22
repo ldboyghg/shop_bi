@@ -1,0 +1,57 @@
+/* 表头不换行 */
+th,td {
+  font-weight: normal !important;
+  white-space: nowrap !important;
+}
+/* 下拉框高度 */
+
+.selectize-input {
+  min-height: 30px !important;
+  height: 30px !important;
+}
+/* 搜索框 */
+.dataTables_filter {
+    margin-top:-15px;
+    z-index:99999;
+    position:relative;
+    /*height:1px !important;
+    visibility:hidden !important;*/
+}
+/*
+特殊报表需要隐藏搜索框的：
+商家表
+*/
+#mid_xxx-tbl .dataTables_filter, #mid_kefu_sale-tbl .dataTables_filter{
+    margin-top:0px;
+    height:1px !important;
+    visibility:hidden !important;
+}
+
+.dataTables_wrapper{
+  margin-top:-45px !important;
+  font-family:Helvetica,Arial,"Hiragino Sans GB","Microsoft Yahei","微软雅黑",STHeiti,"华文细黑",sans-serif !important;
+  font-size: 14px !important;
+}
+/* 翻页字体大小  */
+.dataTables_wrapper .dataTables_paginate .paginate_button {
+  padding:1px !important;
+}
+
+/* 导出按钮 */
+.btn_nowrap {
+    margin-top:25px;
+}
+
+/* 置顶toolbar */
+.toolbar {
+    z-index:9999;
+    position:relative;
+    margin-bottom:8px !important;
+}
+
+/* hide irs-grid of sliderinput */
+.irs-with-grid .irs-grid {
+    display: none !important;
+}
+/*
+label.control-label, .selectize-control.single{ display: table-cell; text-align: center; vertical-align: middle; } .form-group { display: table-row;}*/
